@@ -81,12 +81,21 @@ WSGI_APPLICATION = 'core.wsgi.application'
 
 DATABASES = {
     'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+        'ENGINE': 'django.db.backends.mysql',
+        'NAME': 'Departmental_Management_System',
+        'USER': 'root',
+        'PASSWORD': '*Moses*',
+        'HOST': 'localhost',
+        'PORT': '3306',
     }
 }
 
 CORS_ALLOW_ALL_ORIGINS = True
+
+AUTHENTICATION_BACKENDS = [
+    'users.backends.PhysicalDbAuthBackend',
+    'django.contrib.auth.backends.ModelBackend',
+]
 
 
 

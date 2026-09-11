@@ -41,6 +41,8 @@ const Activities = () => {
 
   useEffect(() => {
     loadActivities();
+    const interval = setInterval(loadActivities, 5000);
+    return () => clearInterval(interval);
   }, []);
 
   const openCreateModal = () => {
@@ -204,12 +206,13 @@ const Activities = () => {
         <Modal
           title={modalType === 'create' ? 'Schedule an activity' : 'Edit scheduled activity'}
           onClose={() => setModalType(null)}
+          onSubmit={modalType === 'create' ? handleCreateActivity : handleEditActivity}
           footer={
             <>
               <button type="button" className="btn btn-secondary" onClick={() => setModalType(null)}>
                 Cancel
               </button>
-              <button type="button" className="btn btn-primary" onClick={modalType === 'create' ? handleCreateActivity : handleEditActivity} disabled={saving}>
+              <button type="submit" className="btn btn-primary" disabled={saving}>
                 {saving ? <span className="spinner" /> : (modalType === 'create' ? 'Schedule' : 'Save Changes')}
               </button>
             </>

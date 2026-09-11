@@ -1,6 +1,13 @@
 import React from 'react';
 
-const Modal = ({ title, children, footer, onClose }) => {
+const Modal = ({ title, children, footer, onClose, onSubmit }) => {
+  const content = (
+    <>
+      <div className="modal-body">{children}</div>
+      {footer && <div className="modal-footer">{footer}</div>}
+    </>
+  );
+
   return (
     <div className="modal-overlay" onClick={(event) => event.target === event.currentTarget && onClose()}>
       <div className="modal-content" role="dialog" aria-modal="true" aria-labelledby="modal-title">
@@ -10,8 +17,13 @@ const Modal = ({ title, children, footer, onClose }) => {
             ×
           </button>
         </div>
-        <div className="modal-body">{children}</div>
-        {footer && <div className="modal-footer">{footer}</div>}
+        {onSubmit ? (
+          <form onSubmit={(e) => { e.preventDefault(); onSubmit(e); }}>
+            {content}
+          </form>
+        ) : (
+          content
+        )}
       </div>
     </div>
   );

@@ -1,6 +1,7 @@
 import React, { useContext } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { AuthContext } from '../context/AuthContext';
+import { ThemeContext } from '../context/ThemeContext';
 import './Sidebar.css';
 
 const baseNavItems = [
@@ -66,6 +67,7 @@ const adminNavItem = {
 
 const Sidebar = () => {
   const { user, logoutUser } = useContext(AuthContext);
+  const { theme, toggleTheme } = useContext(ThemeContext);
   const navigate = useNavigate();
 
   const handleLogout = () => {
@@ -113,8 +115,18 @@ const Sidebar = () => {
         ))}
       </nav>
 
-      {/* Logout */}
-      <div className="sidebar-footer">
+      {/* Footer & Theme Switcher */}
+      <div className="sidebar-footer" style={{ gap: '0.5rem', display: 'flex', flexDirection: 'column' }}>
+        <button
+          type="button"
+          className="sidebar-logout"
+          onClick={toggleTheme}
+          style={{ justifyContent: 'center', background: 'var(--bg-tertiary)', border: 'var(--border-subtle)', cursor: 'pointer' }}
+          title={`Switch to ${theme === 'light' ? 'Dark' : 'Light'} Mode`}
+        >
+          <span>{theme === 'light' ? '🌙 Dark Mode' : '☀️ Light Mode'}</span>
+        </button>
+
         <button className="sidebar-logout" onClick={handleLogout}>
           <svg
             className="sidebar-logout-icon"

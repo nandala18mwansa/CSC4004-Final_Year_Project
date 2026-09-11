@@ -19,6 +19,9 @@ class IsOwnerOrAdminOrManager(permissions.BasePermission):
     Object-level permission to only allow organizers/owners to edit an object.
     Admins and Managers can edit anything.
     """
+    def has_permission(self, request, view):
+        return bool(request.user and request.user.is_authenticated)
+
     def has_object_permission(self, request, view, obj):
         if not (request.user and request.user.is_authenticated):
             return False

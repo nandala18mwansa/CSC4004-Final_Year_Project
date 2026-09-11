@@ -3,12 +3,21 @@ from django.conf import settings
 from activities.models import Activity
 
 class Resource(models.Model):
+    CATEGORY_CHOICES = (
+        ('ROOMS', 'Rooms & Venues'),
+        ('HARDWARE', 'IT & Hardware'),
+        ('VEHICLES', 'Vehicles'),
+        ('AV', 'Audio / Visual'),
+        ('LAB', 'Laboratory & Equipment'),
+        ('GENERAL', 'General Office Assets'),
+    )
     STATUS_CHOICES = (
         ('AVAILABLE', 'Available'),
         ('IN_USE', 'In Use'),
         ('MAINTENANCE', 'Maintenance'),
     )
     name = models.CharField(max_length=100)
+    category = models.CharField(max_length=20, choices=CATEGORY_CHOICES, default='GENERAL')
     description = models.TextField()
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='AVAILABLE')
 
