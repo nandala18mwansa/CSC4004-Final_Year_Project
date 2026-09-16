@@ -1,0 +1,1942 @@
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Inter:wght@300;400;500;600;700&display=swap');
+
+/* ============================================
+   HUBTOLL SAAS DESIGN SYSTEM
+   Clean, Organized Enterprise Cloud Interface
+   ============================================ */
+
+:root, [data-theme="light"] {
+  /* Surface & Background */
+  --bg-primary: #f8fafc;
+  --bg-secondary: #ffffff;
+  --bg-tertiary: #f1f5f9;
+  --bg-card: #ffffff;
+  --bg-card-hover: #fcfdfe;
+
+  /* Hubtoll Brand Colors - Bluish-Purple Palette matching Reference Image */
+  --hub-navy: #151d54;
+  --hub-navy-deep: #0f1542;
+  --hub-navy-surface: #1d2268;
+  --hub-orange: #ff6b2c;
+  --hub-orange-hover: #ea580c;
+  --hub-orange-soft: #fff4ed;
+  --hub-orange-border: rgba(255, 107, 44, 0.25);
+  --hub-purple: #818cf8;
+  --hub-purple-dark: #6366f1;
+  --hub-purple-btn: #9497e8;
+  --hub-gradient-hero: radial-gradient(ellipse 85% 85% at 90% 90%, rgba(139, 92, 246, 0.45) 0%, rgba(99, 102, 241, 0.22) 45%, transparent 75%), radial-gradient(circle at 80% 15%, rgba(129, 140, 248, 0.22) 0%, transparent 55%), linear-gradient(155deg, #121b58 0%, #17246e 32%, #22237d 64%, #322185 88%, #3f1e8e 100%);
+  --hub-gradient-banner: radial-gradient(ellipse 70% 85% at 90% 85%, rgba(139, 92, 246, 0.45) 0%, rgba(99, 102, 241, 0.22) 45%, transparent 75%), radial-gradient(circle at 10% 20%, rgba(129, 140, 248, 0.22) 0%, transparent 55%), linear-gradient(135deg, #121b58 0%, #182574 35%, #242280 70%, #352188 100%);
+
+  /* Text colors */
+  --text-primary: #0f172a;
+  --text-secondary: #475569;
+  --text-muted: #94a3b8;
+  --text-inverse: #ffffff;
+  --text-orange: #ea580c;
+
+  /* Status Colors */
+  --color-success: #10b981;
+  --color-warning: #f59e0b;
+  --color-danger: #ef4444;
+  --color-info: #3b82f6;
+  --color-purple: #8b5cf6;
+
+  /* Borders & Radii */
+  --border-subtle: 1px solid #eaedf3;
+  --border-focus: 1px solid #9497e8;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-2xl: 20px;
+  --radius-full: 9999px;
+
+  /* Shadows */
+  --shadow-xs: 0 1px 2px rgba(15, 23, 42, 0.04);
+  --shadow-sm: 0 1px 3px rgba(15, 23, 42, 0.06);
+  --shadow-md: 0 4px 16px rgba(15, 23, 42, 0.06);
+  --shadow-lg: 0 10px 30px rgba(15, 23, 42, 0.08);
+  --shadow-dropdown: 0 12px 36px rgba(11, 19, 56, 0.12);
+
+  /* Fonts & Transitions */
+  --font-family: 'Plus Jakarta Sans', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  --sidebar-width: 260px;
+  --sidebar-collapsed-width: 68px;
+  --topbar-height: 60px;
+  --transition-fast: 0.15s ease;
+  --transition-base: 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Dark Mode: Hubtoll Midnight Palette */
+[data-theme="dark"] {
+  --bg-primary: #070e28;
+  --bg-secondary: #0b153c;
+  --bg-tertiary: #111e48;
+  --bg-card: #0f1c4a;
+  --bg-card-hover: #14245c;
+
+  --text-primary: #f8fafc;
+  --text-secondary: #cbd5e1;
+  --text-muted: #64748b;
+  --text-orange: #fb923c;
+
+  --border-subtle: 1px solid #1e2c60;
+  --border-focus: 1px solid #818cf8;
+
+  --hub-orange-soft: rgba(255, 107, 44, 0.15);
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.45);
+  --shadow-lg: 0 10px 30px rgba(0, 0, 0, 0.55);
+}
+
+/* ============================================
+   BASE RESET
+   ============================================ */
+
+*, *::before, *::after {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html {
+  font-size: 16px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  font-family: var(--font-family);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  line-height: 1.5;
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+a {
+  color: var(--hub-purple-dark);
+  text-decoration: none;
+  transition: color var(--transition-fast);
+}
+
+button, input, select, textarea {
+  font-family: inherit;
+}
+
+/* ============================================
+   HUBTOLL SPLIT LOGIN PAGE (Image 1)
+   ============================================ */
+
+.hubtoll-login-layout {
+  display: flex;
+  min-height: 100vh;
+  width: 100vw;
+  background: #ffffff;
+}
+
+/* Left Hero Column - Bluish-Purple Gradient */
+.hubtoll-login-left {
+  flex: 1.1;
+  background: var(--hub-gradient-hero);
+  color: #ffffff;
+  padding: 3.5rem 4rem;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  position: relative;
+  overflow: hidden;
+}
+
+.hubtoll-login-left::before {
+  content: '';
+  position: absolute;
+  top: -12%;
+  left: 20%;
+  width: 420px;
+  height: 420px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(129, 140, 248, 0.2), transparent 70%);
+  pointer-events: none;
+}
+
+.hubtoll-login-left::after {
+  content: '';
+  position: absolute;
+  bottom: -15%;
+  right: -10%;
+  width: 520px;
+  height: 520px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(168, 85, 247, 0.35) 0%, rgba(99, 102, 241, 0.18) 50%, transparent 70%);
+  pointer-events: none;
+}
+
+.hubtoll-login-left-content {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  justify-content: space-between;
+  max-width: 580px;
+  margin: 0 auto;
+  width: 100%;
+  position: relative;
+  z-index: 1;
+}
+
+/* Brand Badge at Top Left of Dark Panel */
+.hubtoll-brand-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.65rem;
+  background: #ffffff;
+  padding: 0.5rem 1rem;
+  border-radius: 10px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
+  width: fit-content;
+}
+
+.hubtoll-logo-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.hubtoll-logo-text {
+  font-size: 1.15rem;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  color: var(--hub-navy);
+}
+
+/* Hero Content */
+.hubtoll-hero-body {
+  margin: 3.5rem 0;
+}
+
+.hubtoll-eyebrow-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-bottom: 1.25rem;
+}
+
+.hubtoll-dash {
+  width: 22px;
+  height: 3px;
+  background: #ff6b2c;
+  border-radius: 2px;
+}
+
+.hubtoll-eyebrow-text {
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #94a3b8;
+}
+
+.hubtoll-hero-heading {
+  font-size: 2.5rem;
+  font-weight: 800;
+  line-height: 1.18;
+  color: #ffffff;
+  margin-bottom: 1.25rem;
+  letter-spacing: -0.02em;
+}
+
+.hubtoll-hero-subheading {
+  font-size: 1.05rem;
+  color: #94a3b8;
+  line-height: 1.6;
+  margin-bottom: 2.75rem;
+  max-width: 500px;
+}
+
+/* 3 Value Proposition Feature Cards */
+.hubtoll-features-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.hubtoll-feature-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 1rem;
+}
+
+.hubtoll-feature-icon {
+  width: 42px;
+  height: 42px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #cbd5e1;
+  flex-shrink: 0;
+}
+
+.hubtoll-feature-text h3 {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #ffffff;
+  margin-bottom: 0.2rem;
+}
+
+.hubtoll-feature-text p {
+  font-size: 0.85rem;
+  color: #94a3b8;
+  line-height: 1.4;
+}
+
+.hubtoll-left-footer {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-size: 0.82rem;
+  color: #64748b;
+  margin-top: 2rem;
+}
+
+/* Right Sign In Form Column */
+.hubtoll-login-right {
+  flex: 0.9;
+  background: #ffffff;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 2.5rem 3.5rem;
+}
+
+.hubtoll-right-header {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.hubtoll-top-nav {
+  display: flex;
+  gap: 1.5rem;
+}
+
+.hubtoll-top-nav a {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #64748b;
+  transition: color var(--transition-fast);
+}
+
+.hubtoll-top-nav a:hover {
+  color: #0f172a;
+}
+
+/* Center Form Container */
+.hubtoll-form-container {
+  max-width: 410px;
+  width: 100%;
+  margin: auto;
+  padding: 1.5rem 0;
+}
+
+.hubtoll-workspace-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 1.5rem;
+}
+
+.hubtoll-workspace-logo {
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  color: #2563eb;
+  font-size: 0.65rem;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.hubtoll-workspace-name {
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.hubtoll-workspace-hint {
+  font-size: 0.82rem;
+  color: #94a3b8;
+}
+
+.hubtoll-form-title {
+  font-size: 1.85rem;
+  font-weight: 800;
+  color: #0f172a;
+  letter-spacing: -0.02em;
+  margin-bottom: 0.35rem;
+}
+
+.hubtoll-form-subtitle {
+  font-size: 0.9rem;
+  color: #64748b;
+  margin-bottom: 2rem;
+}
+
+.hubtoll-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.hubtoll-field-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.hubtoll-field-label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #334155;
+}
+
+.hubtoll-input-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.hubtoll-input {
+  width: 100%;
+  padding: 0.75rem 1rem;
+  font-size: 0.9rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #0f172a;
+  transition: all var(--transition-fast);
+  outline: none;
+}
+
+.hubtoll-input:focus {
+  border-color: #818cf8;
+  box-shadow: 0 0 0 3px rgba(129, 140, 248, 0.18);
+}
+
+.hubtoll-toggle-password {
+  position: absolute;
+  right: 0.85rem;
+  background: transparent;
+  border: none;
+  color: #94a3b8;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  padding: 0.25rem;
+  transition: color var(--transition-fast);
+}
+
+.hubtoll-toggle-password:hover {
+  color: #334155;
+}
+
+.hubtoll-forgot-row {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.hubtoll-forgot-link {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #3b82f6;
+}
+
+.hubtoll-forgot-link:hover {
+  text-decoration: underline;
+}
+
+.hubtoll-error-alert {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  border-radius: 8px;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #dc2626;
+  font-size: 0.85rem;
+}
+
+/* Lavender Purple Pill Sign In Button (Image 1) */
+.hubtoll-btn-signin {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6rem;
+  width: 100%;
+  padding: 0.85rem 1.5rem;
+  border-radius: 9999px;
+  border: none;
+  background: linear-gradient(135deg, #a5b4fc 0%, #9497e8 50%, #818cf8 100%);
+  color: #ffffff;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 4px 14px rgba(148, 151, 232, 0.35);
+  transition: all var(--transition-fast);
+  margin-top: 0.5rem;
+}
+
+.hubtoll-btn-signin:hover:not(:disabled) {
+  background: linear-gradient(135deg, #9497e8 0%, #818cf8 100%);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 18px rgba(148, 151, 232, 0.45);
+}
+
+.hubtoll-btn-signin:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+.hubtoll-spinner {
+  width: 18px;
+  height: 18px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-top-color: #ffffff;
+  border-radius: 50%;
+  animation: hubtoll-spin 0.7s linear infinite;
+}
+
+@keyframes hubtoll-spin {
+  to { transform: rotate(360deg); }
+}
+
+.hubtoll-right-footer {
+  text-align: center;
+  font-size: 0.78rem;
+  color: #94a3b8;
+  margin-top: 2rem;
+}
+
+/* Responsive Login */
+@media (max-width: 960px) {
+  .hubtoll-login-layout {
+    flex-direction: column;
+  }
+  .hubtoll-login-left {
+    padding: 2.5rem 2rem;
+  }
+  .hubtoll-login-right {
+    padding: 2.5rem 2rem;
+  }
+}
+
+/* ============================================
+   HUBTOLL TOPBAR (Images 2-5)
+   ============================================ */
+
+.hubtoll-topbar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: var(--topbar-height);
+  background: #ffffff;
+  border-bottom: 1px solid #eaedf3;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 1.25rem;
+  z-index: 100;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.03);
+}
+
+[data-theme="dark"] .hubtoll-topbar {
+  background: #0b153c;
+  border-bottom-color: #1e2c60;
+}
+
+.hubtoll-topbar-left {
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+}
+
+.hubtoll-topbar-brand {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  cursor: pointer;
+  user-select: none;
+}
+
+.hubtoll-brand-text {
+  font-size: 1.18rem;
+  font-weight: 800;
+  color: var(--hub-navy);
+  letter-spacing: -0.01em;
+}
+
+[data-theme="dark"] .hubtoll-brand-text {
+  color: #ffffff;
+}
+
+.hubtoll-hamburger-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: #475569;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.hubtoll-hamburger-btn:hover {
+  background: #f1f5f9;
+  color: #0f172a;
+}
+
+[data-theme="dark"] .hubtoll-hamburger-btn {
+  color: #94a3b8;
+}
+
+[data-theme="dark"] .hubtoll-hamburger-btn:hover {
+  background: #1e2c60;
+  color: #ffffff;
+}
+
+.hubtoll-collapsed-title {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #0f172a;
+  padding-left: 0.5rem;
+  border-left: 1px solid #eaedf3;
+}
+
+[data-theme="dark"] .hubtoll-collapsed-title {
+  color: #f8fafc;
+  border-left-color: #1e2c60;
+}
+
+.hubtoll-topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+}
+
+/* 9-Dots Launcher Icon Button */
+.hubtoll-icon-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 9px;
+  border: 1px solid transparent;
+  background: #f8fafc;
+  color: #64748b;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.hubtoll-icon-btn:hover, .hubtoll-icon-btn.active {
+  background: #f1f5f9;
+  color: #0f172a;
+  border-color: #e2e8f0;
+}
+
+[data-theme="dark"] .hubtoll-icon-btn {
+  background: #111e48;
+  color: #94a3b8;
+}
+
+[data-theme="dark"] .hubtoll-icon-btn:hover {
+  background: #192a62;
+  color: #ffffff;
+}
+
+/* Time / Timezone Pill */
+.hubtoll-time-pill {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.4rem 0.85rem;
+  border-radius: 9999px;
+  background: #eff6ff;
+  border: 1px solid #dbeafe;
+  color: #2563eb;
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  user-select: none;
+}
+
+[data-theme="dark"] .hubtoll-time-pill {
+  background: rgba(37, 99, 235, 0.15);
+  border-color: rgba(37, 99, 235, 0.3);
+  color: #60a5fa;
+}
+
+/* User Avatar Badge */
+.hubtoll-avatar-btn {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  border: none;
+  background: linear-gradient(135deg, #18226e 0%, #2f2180 100%);
+  color: #ffffff;
+  font-size: 0.82rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: transform var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.hubtoll-avatar-btn:hover {
+  transform: scale(1.05);
+  box-shadow: 0 4px 12px rgba(47, 33, 128, 0.35);
+}
+
+/* Dropdown Container */
+.hubtoll-dropdown-container {
+  position: relative;
+}
+
+/* 9-Dots Launcher Popover */
+.hubtoll-launcher-popover {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  width: 360px;
+  background: #ffffff;
+  border-radius: 14px;
+  border: 1px solid #eaedf3;
+  box-shadow: var(--shadow-dropdown);
+  padding: 1.25rem;
+  z-index: 200;
+  animation: hubtoll-fade-down 0.18s ease-out;
+}
+
+[data-theme="dark"] .hubtoll-launcher-popover {
+  background: #0f1c4a;
+  border-color: #1e2c60;
+}
+
+.hubtoll-popover-header {
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 1rem;
+  padding-bottom: 0.6rem;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+[data-theme="dark"] .hubtoll-popover-header {
+  border-bottom-color: #1e2c60;
+}
+
+.hubtoll-popover-title {
+  font-size: 0.92rem;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+[data-theme="dark"] .hubtoll-popover-title {
+  color: #ffffff;
+}
+
+.hubtoll-popover-sub {
+  font-size: 0.75rem;
+  color: #94a3b8;
+}
+
+.hubtoll-launcher-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.hubtoll-launcher-item {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  padding: 0.65rem 0.85rem;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  background: #f8fafc;
+  cursor: pointer;
+  text-align: left;
+  transition: all var(--transition-fast);
+}
+
+.hubtoll-launcher-item:hover {
+  background: #f1f5f9;
+  border-color: #e2e8f0;
+}
+
+.hubtoll-launcher-item.current {
+  background: #fff4ed;
+  border-color: rgba(255, 107, 44, 0.3);
+}
+
+[data-theme="dark"] .hubtoll-launcher-item {
+  background: #14245c;
+}
+
+[data-theme="dark"] .hubtoll-launcher-item:hover {
+  background: #192d70;
+}
+
+.hubtoll-launcher-info {
+  display: flex;
+  flex-direction: column;
+}
+
+.hubtoll-launcher-name {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #0f172a;
+}
+
+[data-theme="dark"] .hubtoll-launcher-name {
+  color: #ffffff;
+}
+
+.hubtoll-launcher-badge {
+  font-size: 0.72rem;
+  color: #64748b;
+}
+
+/* User Profile Popover */
+.hubtoll-profile-popover {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  width: 260px;
+  background: #ffffff;
+  border-radius: 14px;
+  border: 1px solid #eaedf3;
+  box-shadow: var(--shadow-dropdown);
+  padding: 1rem;
+  z-index: 200;
+  animation: hubtoll-fade-down 0.18s ease-out;
+}
+
+[data-theme="dark"] .hubtoll-profile-popover {
+  background: #0f1c4a;
+  border-color: #1e2c60;
+}
+
+@keyframes hubtoll-fade-down {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.hubtoll-profile-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding-bottom: 0.85rem;
+  border-bottom: 1px solid #eaedf3;
+  margin-bottom: 0.75rem;
+}
+
+[data-theme="dark"] .hubtoll-profile-header {
+  border-bottom-color: #1e2c60;
+}
+
+.hubtoll-profile-avatar-large {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #18226e 0%, #2f2180 100%);
+  color: #ffffff;
+  font-size: 1rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.hubtoll-profile-name {
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+[data-theme="dark"] .hubtoll-profile-name {
+  color: #ffffff;
+}
+
+.hubtoll-profile-role {
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: #ff6b2c;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.hubtoll-profile-dept {
+  font-size: 0.75rem;
+  color: #64748b;
+}
+
+.hubtoll-profile-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.hubtoll-profile-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  width: 100%;
+  padding: 0.55rem 0.75rem;
+  border-radius: 8px;
+  border: none;
+  background: transparent;
+  color: #475569;
+  font-size: 0.85rem;
+  cursor: pointer;
+  text-align: left;
+  transition: all var(--transition-fast);
+}
+
+.hubtoll-profile-menu-item:hover {
+  background: #f1f5f9;
+  color: #0f172a;
+}
+
+[data-theme="dark"] .hubtoll-profile-menu-item {
+  color: #cbd5e1;
+}
+
+[data-theme="dark"] .hubtoll-profile-menu-item:hover {
+  background: #14245c;
+  color: #ffffff;
+}
+
+.hubtoll-popover-divider {
+  height: 1px;
+  background: #eaedf3;
+  margin: 0.4rem 0;
+}
+
+[data-theme="dark"] .hubtoll-popover-divider {
+  background: #1e2c60;
+}
+
+.hubtoll-signout-item:hover {
+  color: #ef4444 !important;
+  background: #fef2f2 !important;
+}
+
+[data-theme="dark"] .hubtoll-signout-item:hover {
+  background: rgba(239, 68, 68, 0.15) !important;
+}
+
+/* ============================================
+   APP SHELL & CONTENT WRAPPER
+   ============================================ */
+
+.hubtoll-app-shell {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.hubtoll-body-layout {
+  display: flex;
+  flex: 1;
+  margin-top: var(--topbar-height);
+}
+
+.hubtoll-content-wrapper {
+  flex: 1;
+  margin-left: var(--sidebar-width);
+  padding: 1.75rem 2rem 3rem;
+  transition: margin-left var(--transition-base);
+  min-height: calc(100vh - var(--topbar-height));
+  background: var(--bg-primary);
+}
+
+.hubtoll-content-wrapper.content-collapsed {
+  margin-left: var(--sidebar-collapsed-width);
+}
+
+/* ============================================
+   HUBTOLL HERO WORKSPACE BANNER (Image 2)
+   ============================================ */
+
+.hubtoll-hero-banner {
+  background: var(--hub-gradient-banner);
+  border-radius: var(--radius-xl);
+  padding: 1.75rem 2rem;
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1.75rem;
+  box-shadow: 0 8px 26px rgba(22, 27, 85, 0.22);
+  position: relative;
+  overflow: hidden;
+  border: 1px solid rgba(139, 92, 246, 0.22);
+}
+
+.hubtoll-hero-banner::after {
+  content: '';
+  position: absolute;
+  top: -30%;
+  right: 15%;
+  width: 280px;
+  height: 280px;
+  background: radial-gradient(circle, rgba(168, 85, 247, 0.32), transparent 70%);
+  pointer-events: none;
+}
+
+.hubtoll-workspace-tag-card {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  background: rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  padding: 0.75rem 1.25rem;
+  border-radius: 12px;
+  flex-shrink: 0;
+}
+
+.hubtoll-workspace-tag-logo {
+  width: 36px;
+  height: 36px;
+  background: #ffffff;
+  color: var(--hub-navy);
+  border-radius: 8px;
+  font-weight: 800;
+  font-size: 0.8rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.hubtoll-workspace-tag-info {
+  display: flex;
+  flex-direction: column;
+}
+
+.hubtoll-workspace-tag-eyebrow {
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #94a3b8;
+}
+
+.hubtoll-workspace-tag-title {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #ffffff;
+}
+
+.hubtoll-workspace-tag-category {
+  font-size: 0.75rem;
+  color: #cbd5e1;
+}
+
+/* ============================================
+   KPI STAT CARDS (Images 4 & 5)
+   Clean White Cards with Bold Left-Border Accent
+   ============================================ */
+
+.hubtoll-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 1.25rem;
+  margin-bottom: 1.75rem;
+}
+
+.hubtoll-kpi-card {
+  background: var(--bg-card);
+  border-radius: var(--radius-lg);
+  padding: 1.25rem 1.35rem;
+  border: var(--border-subtle);
+  box-shadow: var(--shadow-xs);
+  display: flex;
+  flex-direction: column;
+  transition: transform var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.hubtoll-kpi-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+}
+
+/* Colored Left Accents (Images 4 & 5) */
+.hubtoll-kpi-card.accent-red {
+  border-left: 4px solid #ef4444;
+}
+
+.hubtoll-kpi-card.accent-blue {
+  border-left: 4px solid #3b82f6;
+}
+
+.hubtoll-kpi-card.accent-green {
+  border-left: 4px solid #10b981;
+}
+
+.hubtoll-kpi-card.accent-purple {
+  border-left: 4px solid #8b5cf6;
+}
+
+.hubtoll-kpi-card.accent-orange {
+  border-left: 4px solid #ff6b2c;
+}
+
+.hubtoll-kpi-label {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #64748b;
+  margin-bottom: 0.4rem;
+}
+
+.hubtoll-kpi-value {
+  font-size: 1.55rem;
+  font-weight: 800;
+  color: #0f172a;
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+  margin-bottom: 0.35rem;
+}
+
+[data-theme="dark"] .hubtoll-kpi-value {
+  color: #f8fafc;
+}
+
+.hubtoll-kpi-sub {
+  font-size: 0.78rem;
+  color: #94a3b8;
+  line-height: 1.3;
+}
+
+/* ============================================
+   PROCESS PIPELINE DIAGRAM ("Where every number comes from" - Image 5)
+   ============================================ */
+
+.hubtoll-pipeline-card {
+  background: var(--bg-card);
+  border-radius: var(--radius-xl);
+  border: var(--border-subtle);
+  padding: 1.5rem;
+  margin-bottom: 1.75rem;
+  box-shadow: var(--shadow-xs);
+}
+
+.hubtoll-pipeline-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+
+.hubtoll-pipeline-title {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+[data-theme="dark"] .hubtoll-pipeline-title {
+  color: #f8fafc;
+}
+
+.hubtoll-pipeline-sub {
+  font-size: 0.85rem;
+  color: #64748b;
+  margin-bottom: 1.25rem;
+}
+
+.hubtoll-pipeline-flow {
+  display: flex;
+  align-items: stretch;
+  gap: 0.5rem;
+  overflow-x: auto;
+  padding-bottom: 0.5rem;
+}
+
+.hubtoll-flow-step {
+  flex: 1;
+  min-width: 145px;
+  background: #f8fafc;
+  border: 1px solid #eaedf3;
+  border-radius: 10px;
+  padding: 0.9rem;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  transition: all var(--transition-fast);
+}
+
+[data-theme="dark"] .hubtoll-flow-step {
+  background: #111e48;
+  border-color: #1e2c60;
+}
+
+.hubtoll-flow-step:hover {
+  border-color: #ff6b2c;
+  background: #fff4ed;
+}
+
+[data-theme="dark"] .hubtoll-flow-step:hover {
+  background: rgba(255, 107, 44, 0.15);
+}
+
+.hubtoll-flow-icon-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.hubtoll-flow-title {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+[data-theme="dark"] .hubtoll-flow-title {
+  color: #f8fafc;
+}
+
+.hubtoll-flow-count {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #ff6b2c;
+  margin-bottom: 0.35rem;
+}
+
+.hubtoll-flow-desc {
+  font-size: 0.72rem;
+  color: #64748b;
+  line-height: 1.35;
+}
+
+.hubtoll-flow-arrow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #cbd5e1;
+  font-size: 1.1rem;
+  font-weight: 700;
+  flex-shrink: 0;
+  padding: 0 0.15rem;
+}
+
+/* ============================================
+   "NEEDS YOUR ATTENTION" URGENT QUEUE (Image 5)
+   ============================================ */
+
+.hubtoll-attention-section {
+  background: var(--bg-card);
+  border-radius: var(--radius-xl);
+  border: var(--border-subtle);
+  padding: 1.5rem;
+  margin-bottom: 1.75rem;
+  box-shadow: var(--shadow-xs);
+}
+
+.hubtoll-attention-header h3 {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+[data-theme="dark"] .hubtoll-attention-header h3 {
+  color: #f8fafc;
+}
+
+.hubtoll-attention-header p {
+  font-size: 0.85rem;
+  color: #64748b;
+  margin-bottom: 1rem;
+}
+
+.hubtoll-attention-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.hubtoll-attention-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.9rem 1.25rem;
+  border-radius: 10px;
+  background: #ffffff;
+  border: 1px solid #eaedf3;
+  transition: all var(--transition-fast);
+  cursor: pointer;
+}
+
+[data-theme="dark"] .hubtoll-attention-item {
+  background: #111e48;
+  border-color: #1e2c60;
+}
+
+.hubtoll-attention-item:hover {
+  border-color: #cbd5e1;
+  box-shadow: var(--shadow-sm);
+  transform: translateX(2px);
+}
+
+.hubtoll-attention-item.alert-red {
+  border-left: 4px solid #ef4444;
+}
+
+.hubtoll-attention-item.alert-blue {
+  border-left: 4px solid #3b82f6;
+}
+
+.hubtoll-attention-item.alert-orange {
+  border-left: 4px solid #ff6b2c;
+}
+
+.hubtoll-attention-left {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.hubtoll-attention-pill {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 0.85rem;
+}
+
+.alert-red .hubtoll-attention-pill {
+  background: #fef2f2;
+  color: #ef4444;
+}
+
+.alert-blue .hubtoll-attention-pill {
+  background: #eff6ff;
+  color: #3b82f6;
+}
+
+.hubtoll-attention-title {
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+[data-theme="dark"] .hubtoll-attention-title {
+  color: #f8fafc;
+}
+
+.hubtoll-attention-text {
+  font-size: 0.8rem;
+  color: #64748b;
+}
+
+.hubtoll-attention-chevron {
+  color: #94a3b8;
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+
+/* ============================================
+   GENERAL PAGE HEADERS & CARDS
+   ============================================ */
+
+.hubtoll-page-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1.25rem;
+  margin-bottom: 1.75rem;
+  flex-wrap: wrap;
+}
+
+.hubtoll-module-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.hubtoll-module-badge-icon {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.hubtoll-module-badge-text {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #64748b;
+}
+
+.page-title {
+  font-size: 1.75rem;
+  font-weight: 800;
+  color: #0f172a;
+  letter-spacing: -0.02em;
+  line-height: 1.25;
+}
+
+[data-theme="dark"] .page-title {
+  color: #f8fafc;
+}
+
+.page-subtitle {
+  font-size: 0.9rem;
+  color: #64748b;
+  margin-top: 0.35rem;
+  max-width: 750px;
+}
+
+[data-theme="dark"] .page-subtitle {
+  color: #94a3b8;
+}
+
+.hubtoll-card {
+  background: var(--bg-card);
+  border-radius: var(--radius-xl);
+  border: var(--border-subtle);
+  padding: 1.5rem;
+  box-shadow: var(--shadow-xs);
+  margin-bottom: 1.5rem;
+}
+
+/* Alert Banners */
+.hubtoll-alert-banner {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.85rem 1.25rem;
+  border-radius: 10px;
+  margin-bottom: 1.25rem;
+  font-size: 0.88rem;
+  font-weight: 500;
+}
+
+.hubtoll-alert-success {
+  background: #ecfdf5;
+  border: 1px solid #a7f3d0;
+  color: #065f46;
+}
+
+.hubtoll-alert-error {
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #991b1b;
+}
+
+/* Buttons */
+.hubtoll-btn-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.65rem 1.25rem;
+  border-radius: 8px;
+  border: none;
+  background: #ff6b2c;
+  color: #ffffff;
+  font-size: 0.88rem;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 2px 6px rgba(255, 107, 44, 0.28);
+  transition: all var(--transition-fast);
+}
+
+.hubtoll-btn-primary:hover:not(:disabled) {
+  background: #ea580c;
+  transform: translateY(-1px);
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.65rem 1.25rem;
+  border-radius: 8px;
+  font-size: 0.88rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  border: 1px solid transparent;
+}
+
+.btn-primary {
+  background: #ff6b2c;
+  color: #ffffff;
+}
+
+.btn-primary:hover {
+  background: #ea580c;
+}
+
+.btn-secondary {
+  background: #f8fafc;
+  border: 1px solid #cbd5e1;
+  color: #334155;
+}
+
+.btn-secondary:hover {
+  background: #f1f5f9;
+}
+
+.btn-sm {
+  padding: 0.4rem 0.75rem;
+  font-size: 0.8rem;
+  border-radius: 6px;
+}
+
+.hubtoll-btn-ghost {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  color: #475569;
+  cursor: pointer;
+}
+
+.hubtoll-btn-ghost:hover {
+  background: #f1f5f9;
+  color: #0f172a;
+}
+
+.hubtoll-btn-warning {
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  color: #d97706;
+  cursor: pointer;
+}
+
+.hubtoll-btn-warning:hover {
+  background: #fef3c7;
+}
+
+.hubtoll-btn-success {
+  background: #ecfdf5;
+  border: 1px solid #a7f3d0;
+  color: #059669;
+  cursor: pointer;
+}
+
+.hubtoll-btn-danger {
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #dc2626;
+  cursor: pointer;
+}
+
+.hubtoll-btn-danger:hover {
+  background: #fee2e2;
+}
+
+/* Search & Inputs */
+.hubtoll-search-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.hubtoll-search-wrap svg {
+  position: absolute;
+  left: 0.85rem;
+  color: #94a3b8;
+  pointer-events: none;
+}
+
+.hubtoll-search-input {
+  width: 100%;
+  padding: 0.65rem 1rem 0.65rem 2.4rem;
+  border-radius: 8px;
+  border: 1px solid #cbd5e1;
+  background: #ffffff;
+  font-size: 0.88rem;
+  color: #0f172a;
+  outline: none;
+  transition: all var(--transition-fast);
+}
+
+.hubtoll-search-input:focus {
+  border-color: #ff6b2c;
+  box-shadow: 0 0 0 3px rgba(255, 107, 44, 0.15);
+}
+
+[data-theme="dark"] .hubtoll-search-input {
+  background: #0f1c4a;
+  border-color: #1e2c60;
+  color: #f8fafc;
+}
+
+.hubtoll-select, .form-select {
+  padding: 0.65rem 0.85rem;
+  border-radius: 8px;
+  border: 1px solid #cbd5e1;
+  background: #ffffff;
+  font-size: 0.88rem;
+  color: #0f172a;
+  outline: none;
+  cursor: pointer;
+}
+
+[data-theme="dark"] .hubtoll-select, [data-theme="dark"] .form-select {
+  background: #0f1c4a;
+  border-color: #1e2c60;
+  color: #f8fafc;
+}
+
+.form-group {
+  margin-bottom: 1.1rem;
+}
+
+.form-label {
+  display: block;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #334155;
+  margin-bottom: 0.35rem;
+}
+
+[data-theme="dark"] .form-label {
+  color: #cbd5e1;
+}
+
+.form-input {
+  width: 100%;
+  padding: 0.65rem 0.9rem;
+  border-radius: 8px;
+  border: 1px solid #cbd5e1;
+  background: #ffffff;
+  font-size: 0.88rem;
+  color: #0f172a;
+  outline: none;
+}
+
+.form-input:focus {
+  border-color: #ff6b2c;
+  box-shadow: 0 0 0 3px rgba(255, 107, 44, 0.15);
+}
+
+[data-theme="dark"] .form-input {
+  background: #0f1c4a;
+  border-color: #1e2c60;
+  color: #f8fafc;
+}
+
+.form-error {
+  color: #dc2626;
+  font-size: 0.82rem;
+}
+
+/* Tables */
+.table-container {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+}
+
+.table th {
+  padding: 0.75rem 1rem;
+  font-size: 0.74rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #64748b;
+  border-bottom: 1px solid #eaedf3;
+  background: #f8fafc;
+}
+
+[data-theme="dark"] .table th {
+  background: #111e48;
+  border-bottom-color: #1e2c60;
+  color: #94a3b8;
+}
+
+.table td {
+  padding: 0.85rem 1rem;
+  font-size: 0.88rem;
+  color: #334155;
+  border-bottom: 1px solid #f1f5f9;
+  vertical-align: middle;
+}
+
+[data-theme="dark"] .table td {
+  color: #cbd5e1;
+  border-bottom-color: #14245c;
+}
+
+.table tbody tr:hover {
+  background: #fafbfc;
+}
+
+[data-theme="dark"] .table tbody tr:hover {
+  background: #111e48;
+}
+
+.hubtoll-table-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #18226e 0%, #2f2180 100%);
+  color: #ffffff;
+  font-size: 0.75rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.hubtoll-pill-tag {
+  display: inline-block;
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 0.15rem 0.45rem;
+  border-radius: 4px;
+  background: #e0f2fe;
+  color: #0369a1;
+}
+
+/* Status Badges */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.25rem 0.65rem;
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.badge-approved {
+  background: #ecfdf5;
+  color: #059669;
+  border: 1px solid #a7f3d0;
+}
+
+.badge-pending {
+  background: #fffbeb;
+  color: #d97706;
+  border: 1px solid #fde68a;
+}
+
+.badge-rejected {
+  background: #fef2f2;
+  color: #dc2626;
+  border: 1px solid #fecaca;
+}
+
+.badge-info {
+  background: #eff6ff;
+  color: #2563eb;
+  border: 1px solid #bfdbfe;
+}
+
+.badge-purple {
+  background: #f5f3ff;
+  color: #7c3aed;
+  border: 1px solid #ddd6fe;
+}
+
+.badge-staff {
+  background: #f1f5f9;
+  color: #475569;
+  border: 1px solid #e2e8f0;
+}
+
+.badge-in-use {
+  background: #fff7ed;
+  color: #c2410c;
+  border: 1px solid #ffedd5;
+}
+
+.badge-maintenance {
+  background: #fef2f2;
+  color: #b91c1c;
+  border: 1px solid #fee2e2;
+}
+
+/* Modals */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(11, 19, 56, 0.55);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  z-index: 500;
+  animation: hubtoll-modal-fade 0.18s ease-out;
+}
+
+.modal-content {
+  background: var(--bg-card);
+  border-radius: var(--radius-xl);
+  border: var(--border-subtle);
+  width: 100%;
+  max-width: 520px;
+  box-shadow: 0 20px 50px rgba(11, 19, 56, 0.25);
+  overflow: hidden;
+}
+
+.modal-header {
+  padding: 1.25rem 1.5rem;
+  border-bottom: 1px solid #eaedf3;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+[data-theme="dark"] .modal-header {
+  border-bottom-color: #1e2c60;
+}
+
+.modal-title {
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+[data-theme="dark"] .modal-title {
+  color: #f8fafc;
+}
+
+.modal-close {
+  background: transparent;
+  border: none;
+  font-size: 1.5rem;
+  color: #94a3b8;
+  cursor: pointer;
+  line-height: 1;
+}
+
+.modal-close:hover {
+  color: #0f172a;
+}
+
+.modal-body {
+  padding: 1.5rem;
+  max-height: 80vh;
+  overflow-y: auto;
+}
+
+.modal-footer {
+  padding: 1rem 1.5rem;
+  border-top: 1px solid #eaedf3;
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+}
+
+@keyframes hubtoll-modal-fade {
+  from { opacity: 0; transform: scale(0.97); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+/* Empty State */
+.empty-state {
+  text-align: center;
+  padding: 3.5rem 1.5rem;
+  color: #64748b;
+}
+
+.spinner-lg {
+  width: 36px;
+  height: 36px;
+  margin: 0 auto 1rem;
+}
+
+.spinner {
+  border: 3px solid rgba(0, 0, 0, 0.1);
+  border-top-color: #ff6b2c;
+  border-radius: 50%;
+  animation: hubtoll-spin 0.8s linear infinite;
+}
+
+/* Grid helper utilities */
+.content-grid {
+  display: grid;
+  gap: 1.25rem;
+}
+
+.content-grid-4 {
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.content-grid-2 {
+  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+}
+
+.stat-card {
+  background: var(--bg-card);
+  border-radius: var(--radius-lg);
+  border: var(--border-subtle);
+  padding: 1.25rem;
+  box-shadow: var(--shadow-xs);
+}
+
+.stat-card-value {
+  font-size: 1.45rem;
+  font-weight: 800;
+  color: #0f172a;
+  margin-top: 0.35rem;
+}
+
+[data-theme="dark"] .stat-card-value {
+  color: #f8fafc;
+}
+
+.stat-card-label {
+  font-size: 0.78rem;
+  color: #64748b;
+}
+
+/* Hubtoll Card Compatibility */
+.glass-panel, .module-card {
+  background: var(--bg-card);
+  border-radius: var(--radius-xl);
+  border: var(--border-subtle);
+  box-shadow: var(--shadow-xs);
+  transition: all var(--transition-fast);
+}
+
+.glass-panel:hover, .module-card:hover {
+  box-shadow: var(--shadow-md);
+}
+
