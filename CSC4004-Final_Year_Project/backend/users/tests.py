@@ -1,9 +1,11 @@
+from decimal import Decimal
+
 from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APITestCase
 from rest_framework_simplejwt.tokens import RefreshToken
 from users.models import User
-from finance.models import Budget, Expense, Approval
+from finance.models import Budget, Expense, Approval, BudgetTransaction
 from resources.models import Resource, Allocation
 
 class RolePermissionsTestCase(APITestCase):
@@ -13,7 +15,11 @@ class RolePermissionsTestCase(APITestCase):
             username='admin', password='password123', role='ADMIN', email='admin@test.com'
         )
         self.manager_user = User.objects.create_user(
-            username='manager', password='password123', role='MANAGER', email='manager@test.com'
+            username='manager', password='password123', role='MANAGER',
+            email='manager@test.com', has_finance_privilege=True
+        )
+        self.plain_manager_user = User.objects.create_user(
+            username='plainmanager', password='password123', role='MANAGER', email='plainmanager@test.com'
         )
         self.staff_user1 = User.objects.create_user(
             username='staff1', password='password123', role='STAFF', email='staff1@test.com'
@@ -123,6 +129,55 @@ class RolePermissionsTestCase(APITestCase):
         approval = Approval.objects.get(expense=self.expense_staff1)
         self.assertEqual(approval.approved_by, self.manager_user)
         self.assertEqual(approval.comments, 'Approved by manager')
+        self.budget.refresh_from_db()
+        self.assertEqual(self.budget.current_balance, Decimal('9500.00'))
+        self.assertTrue(
+            BudgetTransaction.objects.filter(
+                expense=self.expense_staff1,
+                action_type='DEDUCTION',
+                amount=Decimal('500.00'),
+                balance_after=Decimal('9500.00'),
+            ).exists()
+        )
+
+    def test_manager_without_finance_privilege_cannot_approve_expense(self):
+        expense = Expense.objects.create(
+            requested_by=self.plain_manager_user,
+            budget=self.budget,
+            amount=250.00,
+            description='Plain manager own expense',
+            status='PENDING'
+        )
+        self.login('plainmanager')
+        response = self.client.patch(
+            reverse('expense-detail', kwargs={'pk': expense.id}),
+            {'status': 'APPROVED'}
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_reject_expense_requires_reason(self):
+        self.login('manager')
+        response = self.client.patch(
+            reverse('expense-detail', kwargs={'pk': self.expense_staff1.id}),
+            {'status': 'REJECTED'}
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_finance_user_can_reject_expense_with_reason(self):
+        self.login('manager')
+        response = self.client.patch(
+            reverse('expense-detail', kwargs={'pk': self.expense_staff1.id}),
+            {'status': 'REJECTED', 'rejection_reason': 'Receipt missing'}
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.expense_staff1.refresh_from_db()
+        self.budget.refresh_from_db()
+        self.assertEqual(self.expense_staff1.status, 'REJECTED')
+        self.assertEqual(self.expense_staff1.rejection_reason, 'Receipt missing')
+        self.assertEqual(self.budget.current_balance, Decimal('10000.00'))
 
     def test_cannot_approve_expense_without_budget(self):
         expense = Expense.objects.create(
@@ -135,7 +190,7 @@ class RolePermissionsTestCase(APITestCase):
         self.login('manager')
         response = self.client.patch(reverse('expense-detail', kwargs={'pk': expense.id}), {'status': 'APPROVED'})
 
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_cannot_approve_expense_with_insufficient_budget_balance(self):
         self.budget.current_balance = 100.00
@@ -146,7 +201,7 @@ class RolePermissionsTestCase(APITestCase):
             {'status': 'APPROVED'}
         )
 
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     # --- RESOURCE & ALLOCATION PERMISSIONS TESTS ---
     def test_staff_cannot_create_resource(self):

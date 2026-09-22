@@ -1,9 +1,34 @@
 from rest_framework import permissions
 
+
+def has_finance_privilege(user):
+    return bool(user and user.is_authenticated and (user.is_superuser or user.has_finance_privilege))
+
+
+def has_finance_balance_access(user):
+    return bool(
+        user
+        and user.is_authenticated
+        and (user.is_superuser or user.has_finance_privilege or user.has_finance_balance_access)
+    )
+
+
+def has_resource_privilege(user):
+    return bool(user and user.is_authenticated and (user.is_superuser or user.has_resource_privilege))
+
+
+def has_activity_privilege(user):
+    return bool(user and user.is_authenticated and (user.is_superuser or user.has_activity_privilege))
+
+
+def has_control_privilege(user):
+    return bool(user and user.is_authenticated and (user.is_superuser or user.role == 'ADMIN'))
+
+
 class IsAdmin(permissions.BasePermission):
-    """Custom permission to check if user is admin."""
+    """Only users explicitly allowed to manage Control & Access."""
     def has_permission(self, request, view):
-        return request.user and request.user.is_authenticated and request.user.role == 'ADMIN'
+        return has_control_privilege(request.user)
 
 class IsManagerOrAdmin(permissions.BasePermission):
     """Custom permission to check if user is manager or admin."""
@@ -13,6 +38,26 @@ class IsManagerOrAdmin(permissions.BasePermission):
             and request.user.is_authenticated 
             and request.user.role in ['ADMIN', 'MANAGER']
         )
+
+
+class IsFinancePrivileged(permissions.BasePermission):
+    """Only admins and users explicitly given finance privileges."""
+    def has_permission(self, request, view):
+        return has_finance_privilege(request.user)
+
+
+class IsFinanceBalanceViewer(permissions.BasePermission):
+    """Only admins and users explicitly allowed to view finance balances."""
+    def has_permission(self, request, view):
+        return has_finance_balance_access(request.user)
+
+
+class IsActivityPrivilegedOrReadOnly(permissions.BasePermission):
+    """Authenticated staff can submit activities; privileged users manage approvals."""
+    def has_permission(self, request, view):
+        if not (request.user and request.user.is_authenticated):
+            return False
+        return True
 
 class IsOwnerOrAdminOrManager(permissions.BasePermission):
     """
@@ -26,8 +71,13 @@ class IsOwnerOrAdminOrManager(permissions.BasePermission):
         if not (request.user and request.user.is_authenticated):
             return False
             
-        # Admins and Managers have full access
-        if request.user.role in ['ADMIN', 'MANAGER']:
+        if request.user.is_superuser:
+            return True
+
+        if hasattr(obj, 'organizer') and has_activity_privilege(request.user):
+            return True
+
+        if hasattr(obj, 'resource') and has_resource_privilege(request.user):
             return True
             
         # Check ownership based on standard field names
@@ -53,5 +103,4 @@ class IsAdminOrManagerOrReadOnly(permissions.BasePermission):
         if request.method in permissions.SAFE_METHODS:
             return True
             
-        # Write methods require ADMIN or MANAGER role
-        return request.user.role in ['ADMIN', 'MANAGER']
+        return request.user.is_superuser

@@ -1,4 +1,5 @@
-const Modal = ({ title, children, footer, onClose, onSubmit }) => {
+const Modal = ({ title, children, footer, onClose, onSubmit, isOpen = true }) => {
+  if (!isOpen) return null;
   const content = (
     <>
       <div className="modal-body">{children}</div>
@@ -11,9 +12,7 @@ const Modal = ({ title, children, footer, onClose, onSubmit }) => {
       <div className="modal-content" role="dialog" aria-modal="true" aria-labelledby="modal-title">
         <div className="modal-header">
           <h2 className="modal-title" id="modal-title">{title}</h2>
-          <button type="button" className="modal-close" onClick={onClose} aria-label="Close modal">
-            ×
-          </button>
+          <button type="button" className="modal-close" onClick={onClose} aria-label="Close modal">&times;</button>
         </div>
         {onSubmit ? (
           <form onSubmit={(e) => { e.preventDefault(); onSubmit(e); }}>

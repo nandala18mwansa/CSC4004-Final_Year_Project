@@ -14,8 +14,34 @@ export const AuthProvider = ({ children }) => {
     if (!authTokens) return;
     try {
       const response = await api.get('profile/');
-      const { id, username, email, role, department } = response.data;
-      setUser({ id, username, email, role, department });
+      const {
+        id,
+        username,
+        email,
+        role,
+        department,
+        user_category,
+        user_category_name,
+        has_finance_privilege,
+        has_finance_balance_access,
+        has_resource_privilege,
+        has_activity_privilege,
+        is_superuser,
+      } = response.data;
+      setUser({
+        id,
+        username,
+        email,
+        role,
+        department,
+        user_category,
+        user_category_name,
+        has_finance_privilege,
+        has_finance_balance_access,
+        has_resource_privilege,
+        has_activity_privilege,
+        is_superuser,
+      });
     } catch (error) {
       console.error('Failed to fetch profile', error);
       setAuthTokens(null);
@@ -31,8 +57,34 @@ export const AuthProvider = ({ children }) => {
       setAuthTokens(tokens);
       localStorage.setItem('authTokens', JSON.stringify(tokens));
       const profileRes = await api.get('profile/');
-      const { id, username: uname, email, role, department } = profileRes.data;
-      setUser({ id, username: uname, email, role, department });
+      const {
+        id,
+        username: uname,
+        email,
+        role,
+        department,
+        user_category,
+        user_category_name,
+        has_finance_privilege,
+        has_finance_balance_access,
+        has_resource_privilege,
+        has_activity_privilege,
+        is_superuser,
+      } = profileRes.data;
+      setUser({
+        id,
+        username: uname,
+        email,
+        role,
+        department,
+        user_category,
+        user_category_name,
+        has_finance_privilege,
+        has_finance_balance_access,
+        has_resource_privilege,
+        has_activity_privilege,
+        is_superuser,
+      });
       return { success: true };
     } catch (error) {
       const message =

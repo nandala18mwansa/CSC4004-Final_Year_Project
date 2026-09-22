@@ -1,6 +1,6 @@
 import { useState, useContext } from 'react';
 import { AuthContext } from '../context/AuthContextValue';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 
 const Login = () => {
   const [identifier, setIdentifier] = useState('');
@@ -145,7 +145,10 @@ const Login = () => {
             </div>
 
             <div className="hubtoll-field-group">
-              <label className="hubtoll-field-label">Password *</label>
+              <div className="hubtoll-field-label-row">
+                <label className="hubtoll-field-label">Password *</label>
+                <Link className="hubtoll-forgot-link" to="/forgot-password">Forgot Password?</Link>
+              </div>
               <div className="hubtoll-input-wrapper">
                 <input
                   type={showPassword ? 'text' : 'password'}

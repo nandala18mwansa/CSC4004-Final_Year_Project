@@ -17,8 +17,8 @@
 }
 
 [data-theme="dark"] .hubtoll-sidebar {
-  background: #0f172a;
-  border-right-color: #1e293b;
+  background: #12151B;
+  border-right-color: #303743;
 }
 
 /* Collapsed rail mode (Image 5) */
@@ -39,8 +39,8 @@
 }
 
 [data-theme="dark"] .hubtoll-active-module-card {
-  background: #1e293b;
-  border-color: #334155;
+  background: #181C23;
+  border-color: #303743;
 }
 
 .hubtoll-active-module-icon-box {
@@ -91,7 +91,7 @@
 }
 
 [data-theme="dark"] .hubtoll-rail-active-pill {
-  border-bottom-color: #1e293b;
+  border-bottom-color: #303743;
 }
 
 .hubtoll-rail-icon-box {
@@ -144,7 +144,7 @@
 }
 
 [data-theme="dark"] .hubtoll-nav-link {
-  color: #94a3b8;
+  color: #AAB3C2;
 }
 
 .hubtoll-sidebar.collapsed .hubtoll-nav-link {
@@ -160,8 +160,8 @@
 }
 
 [data-theme="dark"] .hubtoll-nav-link:hover {
-  color: #ffffff;
-  background: #1e293b;
+  color: #F4F6F8;
+  background: #1D222B;
 }
 
 /* Active Nav Link (Peach pill + Orange text/icon) */
@@ -172,6 +172,25 @@
 }
 
 [data-theme="dark"] .hubtoll-nav-link.active {
+  color: #fb923c;
+  background: rgba(249, 115, 22, 0.15);
+}
+
+[data-theme="dark"] .hubtoll-tree-header {
+  color: #AAB3C2;
+}
+
+[data-theme="dark"] .hubtoll-tree-header:hover,
+[data-theme="dark"] .hubtoll-sub-item:hover {
+  color: #F4F6F8;
+  background: #1D222B;
+}
+
+[data-theme="dark"] .hubtoll-sub-item {
+  color: #AAB3C2;
+}
+
+[data-theme="dark"] .hubtoll-sub-item.active {
   color: #fb923c;
   background: rgba(249, 115, 22, 0.15);
 }

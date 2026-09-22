@@ -66,6 +66,9 @@ const request = async (path, options = {}, retry = true) => {
   if (tokens?.access) {
     headers.Authorization = `Bearer ${tokens.access}`;
   }
+  if (options.body instanceof FormData) {
+    delete headers['Content-Type'];
+  }
 
   const response = await fetch(buildUrl(path), {
     ...options,
@@ -90,10 +93,55 @@ const request = async (path, options = {}, retry = true) => {
   return { data, status: response.status };
 };
 
-const withJsonBody = (data, options = {}) => ({
-  ...options,
-  body: data === undefined ? undefined : JSON.stringify(data),
-});
+const download = async (path, retry = true) => {
+  const tokens = getStoredTokens();
+  const headers = {};
+
+  if (tokens?.access) {
+    headers.Authorization = `Bearer ${tokens.access}`;
+  }
+
+  const response = await fetch(buildUrl(path), {
+    method: 'GET',
+    headers,
+  });
+
+  if (response.status === 401 && retry && !path.includes('token/')) {
+    const newTokens = await refreshAccessToken();
+    if (newTokens?.access) {
+      return download(path, false);
+    }
+
+    window.location.href = '/login';
+  }
+
+  if (!response.ok) {
+    const data = await parseResponse(response);
+    throw createApiError(response, data);
+  }
+
+  return {
+    blob: await response.blob(),
+    filename: response.headers.get('Content-Disposition')?.match(/filename="?([^"]+)"?/)?.[1],
+    status: response.status,
+  };
+};
+
+const withJsonBody = (data, options = {}) => {
+  if (data instanceof FormData) {
+    const headers = { ...(options.headers || {}) };
+    delete headers['Content-Type'];
+    return {
+      ...options,
+      headers,
+      body: data,
+    };
+  }
+  return {
+    ...options,
+    body: data === undefined ? undefined : JSON.stringify(data),
+  };
+};
 
 const api = {
   get: (path, options) => request(path, { ...options, method: 'GET' }),
@@ -101,6 +149,7 @@ const api = {
   patch: (path, data, options) => request(path, withJsonBody(data, { ...options, method: 'PATCH' })),
   put: (path, data, options) => request(path, withJsonBody(data, { ...options, method: 'PUT' })),
   delete: (path, options) => request(path, { ...options, method: 'DELETE' }),
+  download,
 };
 
 export default api;

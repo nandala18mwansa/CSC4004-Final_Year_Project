@@ -11,6 +11,7 @@ import Finance from './pages/Finance';
 import Activities from './pages/Activities';
 import Resources from './pages/Resources';
 import Control from './pages/Control';
+import { ForgotPassword, ResetPassword } from './pages/PasswordReset';
 
 const PrivateRoute = ({ children }) => {
   const { user, loading } = useContext(AuthContext);
@@ -54,6 +55,8 @@ function App() {
         <AuthProvider>
           <Routes>
             <Route path="/login" element={<Login />} />
+            <Route path="/forgot-password" element={<ForgotPassword />} />
+            <Route path="/reset-password/:uid/:token" element={<ResetPassword />} />
             <Route path="/" element={<PrivateRoute><AppLayout /></PrivateRoute>}>
               <Route index element={<Dashboard />} />
               <Route path="finance" element={<Finance />} />
