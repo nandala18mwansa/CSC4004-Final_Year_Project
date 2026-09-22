@@ -1,59 +1,163 @@
 # Departmental Management System (DMS)
 
-This project contains a Django REST API backend and a Vite React frontend for managing departmental budgets, expense approvals, activities, and resource allocations.
+The **Departmental Management System (DMS)** is a web-based system developed to support the management of departmental finances, resources, activities, approvals, notifications, and user access within the University of Zambia.
 
-## Backend setup
+The system provides a centralized platform for departmental staff and administrators to manage operational activities through clearly separated modules while enforcing role-based and privilege-based access.
 
-```bash
-cd backend
-python -m venv venv
-venv\Scripts\activate
-pip install -r requirements.txt
-copy .env.mysql.example .env
-python manage.py migrate
-python manage.py runserver
-```
+---
 
-The cleaned project includes `backend/database_cleaned_mysql.sql`, which restores the old useful data into the readable table names used by the updated code. Import it before starting the backend:
+## Main Features
 
-```bash
-"C:\Program Files\MySQL\MySQL Server 8.0\bin\mysql.exe" -u root -p < database_cleaned_mysql.sql
-```
+### Corporate Dashboard
 
-Then edit `backend/.env` and set `DB_PASSWORD` to your local MySQL password. The database name is `Departmental_Management_System`.
+The dashboard provides a high-level overview of departmental operations.
 
-## Frontend setup
+It displays information such as:
 
-```bash
-cd frontend
-npm install
-npm run dev
-```
+- Available departmental budget
+- Approved expenditure
+- Resource availability
+- Pending approvals
+- Upcoming activities
+- Recent departmental activity
+- Items requiring administrative attention
 
-The frontend expects the backend API to be available at `http://127.0.0.1:8000/api/` unless `src/utils/api.js` is changed.
+Dashboard content is permission-aware, meaning users only see information they are authorized to access.
 
-## Verification
+---
 
-```bash
-cd backend
-python manage.py test
+## Finance & Budgets
 
-cd ../frontend
-npm run lint
-npm run build
-```
+The Finance module supports departmental financial management.
 
-## Database notes
+Main functions include:
 
-The old raw dump was replaced with `backend/database_cleaned_mysql.sql`. It keeps the application usable with MySQL while removing obsolete table names and generated clutter. The readable application tables are:
+- Departmental budget management
+- Adding funds to budgets
+- Expense request submission
+- Expense approval and rejection
+- Refund and adjustment tracking
+- Financial transaction ledger
+- Budget utilization monitoring
+- Financial summary requests
+- Financial statement generation
+- PDF financial reports
+- Excel financial reports
+- CSV financial reports
+- Financial report history
+- Finance notifications
 
-- `users`
-- `users_groups`
-- `users_user_permissions`
-- `budgets`
-- `expenses`
-- `approvals`
-- `transactions`
-- `resources`
-- `allocations`
-- `activities`
+Financial statements include:
+
+- Opening Balance
+- Funds Added
+- Approved Expenditure
+- Refunds/Reversals
+- Adjustments
+- Net Movement
+- Closing Balance
+- Detailed transaction ledger
+
+Access to the overall department financial balance can be controlled separately through the **Balance View** permission.
+
+---
+
+## Resources & Assets
+
+The Resources & Assets module manages departmental equipment, assets, locations, allocations and booking requests.
+
+The module is divided into:
+
+- Overview
+- Resource Register
+- Booking Requests
+- Allocations
+
+Main functions include:
+
+- Add individual resources
+- Bulk add resources
+- Import resource records
+- Resource category management
+- Resource status management
+- Resource condition management
+- Room/location assignment
+- Portable-resource support
+- Resource allocation and reassignment
+- Resource booking requests
+- Booking approval and rejection
+- Resource availability checking
+- Resource register generation
+- PDF resource register export
+- Allocation history
+
+The system supports large numbers of resources and booking requests through separate views and scalable tables.
+
+---
+
+## Activities & Events
+
+The Activities & Events module supports departmental meetings, events and scheduled activities.
+
+Main functions include:
+
+- Create departmental activities
+- Define and manage activity types
+- Add participants
+- Select participant groups
+- Add external participant email addresses
+- Activity approval and rejection
+- Activity cancellation
+- Activity deletion by authorized administrators
+- Upcoming activity tracking
+- Participant roster viewing
+- Email notifications
+- In-app notifications
+- Google Calendar related scheduling support
+
+Activities can be reviewed by authorized users before being fully scheduled.
+
+Authorized administrators can also delete activities where necessary.
+
+---
+
+## Notifications
+
+The DMS includes an in-app notification system.
+
+Notifications may be generated for events such as:
+
+- Expense approvals
+- Expense rejections
+- Activity approvals
+- Activity rejections
+- Resource booking approvals
+- Resource booking rejections
+- Financial report availability
+- Scheduled activities
+- Administrative actions
+
+Email notifications are also supported through SMTP.
+
+---
+
+## Email / SMTP Support
+
+The backend supports SMTP email delivery.
+
+The current development configuration supports Gmail SMTP using a Google App Password.
+
+Example environment variables:
+
+```env
+EMAIL_BACKEND=django.core.mail.backends.smtp.EmailBackend
+EMAIL_HOST=smtp.gmail.com
+EMAIL_PORT=587
+EMAIL_USE_TLS=True
+
+EMAIL_HOST_USER=dms_email@gmail.com
+EMAIL_HOST_PASSWORD=google_app_password_associated_with_the_dms_email
+
+DEFAULT_FROM_EMAIL=Departmental Management System <dms_email@gmail.com>
+
+FRONTEND_URL=http://127.0.0.1:5173
