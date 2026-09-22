@@ -1,6 +1,6 @@
 # Departmental Management System (DMS)
 
-The **Departmental Management System (DMS)** is a web-based system developed to support the management of departmental finances, resources, activities, approvals, notifications, and user access within the University of Zambia.
+The **Departmental Management System (DMS)** is a web-based system developed to support the management of departmental finances, resources, activities, approvals, notifications, and user access.
 
 The system provides a centralized platform for departmental staff and administrators to manage operational activities through clearly separated modules while enforcing role-based and privilege-based access.
 
