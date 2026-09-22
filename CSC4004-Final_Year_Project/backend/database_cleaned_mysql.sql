@@ -1,9 +1,6 @@
 -- ============================================================
 -- Departmental Management System
 -- Cleaned MySQL database for the revised Django project
--- Generated: 2026-09-12
--- Import via: mysql -u root -p < database_cleaned_mysql.sql
--- This keeps the original database name but uses readable table names and cleaned seed data.
 -- ============================================================
 
 DROP DATABASE IF EXISTS `Departmental_Management_System`;
@@ -236,7 +233,6 @@ CREATE TABLE `users_user_permissions` (
 
 -- ============================================================
 -- CLEANED PROJECT SCHEMA UPDATES
--- These changes match the cleaned Django models and migrations.
 -- ============================================================
 
 ALTER TABLE `budgets`
