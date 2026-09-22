@@ -1,4 +1,4 @@
-# Departmental Resource and Financial Management System
+# Departmental Management System (DMS)
 
 This project contains a Django REST API backend and a Vite React frontend for managing departmental budgets, expense approvals, activities, and resource allocations.
 
