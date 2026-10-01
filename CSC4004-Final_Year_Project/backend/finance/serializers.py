@@ -1,5 +1,9 @@
 from rest_framework import serializers
-from .models import Budget, Expense, Approval, BudgetTransaction, FinancialSummaryRequest, FinanceNotification, FinanceAuditLog
+from .models import (
+    Budget, Expense, Approval, BudgetTransaction, FinancialSummaryRequest,
+    FinanceNotification, FinanceAuditLog, DepartmentalIncome,
+    DepartmentalIncomeAllocation,
+)
 from users.permissions import has_finance_balance_access
 
 
@@ -77,9 +81,36 @@ class BudgetTransactionSerializer(serializers.ModelSerializer):
         )
 
 
+class DepartmentalIncomeSerializer(serializers.ModelSerializer):
+    recorded_by_username = serializers.CharField(source='recorded_by.username', read_only=True)
+
+    class Meta:
+        model = DepartmentalIncome
+        fields = '__all__'
+        read_only_fields = ('id', 'reference', 'recorded_by', 'allocation_status', 'unallocated_amount', 'created_at', 'updated_at')
+
+    def validate_amount(self, value):
+        if value <= 0:
+            raise serializers.ValidationError('Income amount must be greater than zero.')
+        return value
+
+
+class DepartmentalIncomeAllocationSerializer(serializers.ModelSerializer):
+    income_reference = serializers.CharField(source='income.reference', read_only=True)
+    budget_department = serializers.CharField(source='budget.department', read_only=True)
+    allocated_by_username = serializers.CharField(source='allocated_by.username', read_only=True)
+    transaction_reference = serializers.CharField(source='transaction.reference', read_only=True)
+
+    class Meta:
+        model = DepartmentalIncomeAllocation
+        fields = '__all__'
+        read_only_fields = ('id', 'reference', 'transaction', 'allocated_by', 'allocated_at')
+
+
 class FinancialSummaryRequestSerializer(serializers.ModelSerializer):
     requested_by_username = serializers.CharField(source='requested_by.username', read_only=True)
     processed_by_username = serializers.CharField(source='processed_by.username', read_only=True)
+    budget_department = serializers.CharField(source='budget.department', read_only=True)
     report_url = serializers.SerializerMethodField()
 
     class Meta:
@@ -96,8 +127,17 @@ class FinancialSummaryRequestSerializer(serializers.ModelSerializer):
 
     def validate_report_format(self, value):
         value = str(value).upper()
-        if value not in ('PDF', 'CSV'):
-            raise serializers.ValidationError('Report format must be PDF or CSV.')
+        if value not in ('PDF', 'EXCEL', 'XLSX', 'CSV'):
+            raise serializers.ValidationError('Report format must be PDF, Excel, or CSV.')
+        if value == 'XLSX':
+            return 'EXCEL'
+        return value
+
+    def validate_transaction_type(self, value):
+        value = str(value or 'ALL').upper()
+        allowed = {'ALL', 'INCOME', 'EXPENSE', 'ALLOCATION', 'TRANSFER', 'TOP_UP', 'DEDUCTION', 'REFUND', 'ADJUSTMENT'}
+        if value not in allowed:
+            raise serializers.ValidationError('Unsupported transaction type filter.')
         return value
 
     def validate(self, attrs):

@@ -13,6 +13,8 @@ def _ref(prefix):
 def expense_ref(): return _ref('EXP')
 def transaction_ref(): return _ref('TXN')
 def report_ref(): return _ref('FR')
+def income_ref(): return _ref('INC')
+def income_allocation_ref(): return _ref('IAL')
 
 
 class Budget(models.Model):
@@ -71,6 +73,7 @@ class Approval(models.Model):
 class BudgetTransaction(models.Model):
     ACTION_CHOICES = (
         ('TOP_UP', 'Funds Added'),
+        ('ALLOCATION', 'Income Allocation'),
         ('DEDUCTION', 'Expense Approved'),
         ('REFUND', 'Expense Reversal'),
         ('ADJUSTMENT', 'Controlled Adjustment'),
@@ -95,6 +98,61 @@ class BudgetTransaction(models.Model):
         return f"{self.reference} - {self.action_type} - ZMW {self.amount}"
 
 
+class DepartmentalIncome(models.Model):
+    STATUS_CHOICES = (
+        ('UNALLOCATED', 'Unallocated'),
+        ('PARTIALLY_ALLOCATED', 'Partially Allocated'),
+        ('ALLOCATED', 'Allocated'),
+    )
+    reference = models.CharField(max_length=24, unique=True, default=income_ref, editable=False)
+    source_name = models.CharField(max_length=160)
+    description = models.TextField(blank=True, default='')
+    amount = models.DecimalField(max_digits=12, decimal_places=2, validators=[MinValueValidator(Decimal('0.01'))])
+    unallocated_amount = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'), validators=[MinValueValidator(Decimal('0.00'))])
+    date_received = models.DateField()
+    external_reference = models.CharField(max_length=120, blank=True, default='')
+    recorded_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name='departmental_income_records')
+    allocation_status = models.CharField(max_length=30, choices=STATUS_CHOICES, default='UNALLOCATED')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'departmental_income'
+        ordering = ['-date_received', '-id']
+
+    def __str__(self):
+        return f"{self.reference} - {self.source_name} - ZMW {self.amount}"
+
+    def save(self, *args, **kwargs):
+        if self._state.adding and self.unallocated_amount in (None, Decimal('0.00')):
+            self.unallocated_amount = self.amount
+        if self.unallocated_amount <= Decimal('0.00'):
+            self.allocation_status = 'ALLOCATED'
+        elif self.unallocated_amount < self.amount:
+            self.allocation_status = 'PARTIALLY_ALLOCATED'
+        else:
+            self.allocation_status = 'UNALLOCATED'
+        super().save(*args, **kwargs)
+
+
+class DepartmentalIncomeAllocation(models.Model):
+    reference = models.CharField(max_length=24, unique=True, default=income_allocation_ref, editable=False)
+    income = models.ForeignKey(DepartmentalIncome, on_delete=models.PROTECT, related_name='allocations')
+    budget = models.ForeignKey(Budget, on_delete=models.PROTECT, related_name='income_allocations')
+    transaction = models.OneToOneField(BudgetTransaction, on_delete=models.PROTECT, null=True, blank=True, related_name='income_allocation')
+    amount = models.DecimalField(max_digits=12, decimal_places=2, validators=[MinValueValidator(Decimal('0.01'))])
+    allocated_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name='departmental_income_allocations')
+    allocated_at = models.DateTimeField(auto_now_add=True)
+    notes = models.TextField(blank=True, default='')
+
+    class Meta:
+        db_table = 'departmental_income_allocations'
+        ordering = ['-allocated_at', '-id']
+
+    def __str__(self):
+        return f"{self.reference} - {self.income.reference} to {self.budget.department}"
+
+
 class FinancialSummaryRequest(models.Model):
     STATUS_CHOICES = (('PENDING', 'Pending'), ('COMPLETED', 'Completed'), ('REJECTED', 'Rejected'))
     FORMAT_CHOICES = (('PDF', 'PDF'), ('EXCEL', 'Excel (.xlsx)'), ('CSV', 'CSV (.csv)'))
@@ -103,6 +161,8 @@ class FinancialSummaryRequest(models.Model):
     reason = models.TextField()
     report_start = models.DateField(null=True, blank=True)
     report_end = models.DateField(null=True, blank=True)
+    budget = models.ForeignKey(Budget, on_delete=models.PROTECT, null=True, blank=True, related_name='financial_summary_requests')
+    transaction_type = models.CharField(max_length=20, blank=True, default='ALL')
     report_format = models.CharField(max_length=10, choices=FORMAT_CHOICES, default='PDF')
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='PENDING')
     rejection_reason = models.TextField(blank=True, null=True)

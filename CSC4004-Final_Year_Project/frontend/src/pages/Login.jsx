@@ -1,4 +1,4 @@
-import { useState, useContext } from 'react';
+import { useEffect, useRef, useState, useContext } from 'react';
 import { AuthContext } from '../context/AuthContextValue';
 import { Link, useNavigate } from 'react-router-dom';
 
@@ -8,8 +8,11 @@ const Login = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const { loginUser } = useContext(AuthContext);
+  const [isGoogleSubmitting, setIsGoogleSubmitting] = useState(false);
+  const googleButtonRef = useRef(null);
+  const { loginUser, loginWithGoogle } = useContext(AuthContext);
   const navigate = useNavigate();
+  const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID || '';
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -25,6 +28,49 @@ const Login = () => {
       setError(result.message || 'Login failed. Check your credentials and try again.');
     }
   };
+
+  useEffect(() => {
+    if (!googleClientId || !googleButtonRef.current) return;
+
+    const renderGoogleButton = () => {
+      if (!window.google?.accounts?.id || !googleButtonRef.current) return;
+      window.google.accounts.id.initialize({
+        client_id: googleClientId,
+        callback: async (response) => {
+          setIsGoogleSubmitting(true);
+          setError('');
+          const result = await loginWithGoogle(response.credential);
+          setIsGoogleSubmitting(false);
+          if (result.success) {
+            navigate('/');
+          } else {
+            setError(result.message || 'Google sign-in failed. Please try again.');
+          }
+        },
+      });
+      googleButtonRef.current.innerHTML = '';
+      window.google.accounts.id.renderButton(googleButtonRef.current, {
+        theme: 'outline',
+        size: 'large',
+        text: 'continue_with',
+        shape: 'rectangular',
+        width: 320,
+      });
+    };
+
+    if (window.google?.accounts?.id) {
+      renderGoogleButton();
+      return;
+    }
+
+    const script = document.createElement('script');
+    script.src = 'https://accounts.google.com/gsi/client';
+    script.async = true;
+    script.defer = true;
+    script.onload = renderGoogleButton;
+    script.onerror = () => setError('Google sign-in could not be loaded. Please use your DMS password or try again later.');
+    document.head.appendChild(script);
+  }, [googleClientId, navigate]);
 
   return (
     <div className="hubtoll-login-layout">
@@ -145,10 +191,7 @@ const Login = () => {
             </div>
 
             <div className="hubtoll-field-group">
-              <div className="hubtoll-field-label-row">
-                <label className="hubtoll-field-label">Password *</label>
-                <Link className="hubtoll-forgot-link" to="/forgot-password">Forgot Password?</Link>
-              </div>
+              <label className="hubtoll-field-label">Password *</label>
               <div className="hubtoll-input-wrapper">
                 <input
                   type={showPassword ? 'text' : 'password'}
@@ -178,6 +221,7 @@ const Login = () => {
                   )}
                 </button>
               </div>
+              <Link className="hubtoll-forgot-link hubtoll-forgot-below" to="/forgot-password">Forgot Password?</Link>
             </div>
 
             {error && (
@@ -204,6 +248,20 @@ const Login = () => {
                 </>
               )}
             </button>
+
+            <div className="hubtoll-auth-divider"><span>OR</span></div>
+
+            {googleClientId ? (
+              <div className="hubtoll-google-wrap">
+                <div ref={googleButtonRef} className="hubtoll-google-button" />
+                {isGoogleSubmitting && <div className="hubtoll-google-loading">Signing in with Google...</div>}
+              </div>
+            ) : (
+              <button type="button" className="hubtoll-google-fallback" disabled title="Google OAuth client ID is not configured">
+                <span className="hubtoll-google-g">G</span>
+                Continue with Google
+              </button>
+            )}
           </form>
         </div>
 

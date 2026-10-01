@@ -3,12 +3,14 @@ from datetime import timezone as dt_timezone
 
 from rest_framework import viewsets, status as drf_status
 from rest_framework.decorators import action
+from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from django.conf import settings
 from django.db.models import Q
 from django.utils import timezone
+from django.utils.dateparse import parse_date
 
 from users.permissions import IsActivityPrivilegedOrReadOnly, IsOwnerOrAdminOrManager, has_activity_privilege
 from users.models import User
@@ -18,6 +20,11 @@ from .serializers import ActivitySerializer, ActivityTypeSerializer
 
 
 # ── ActivityType ViewSet ─────────────────────────────────────────────
+
+class ActivityPagination(PageNumberPagination):
+    page_size = 20
+    page_size_query_param = 'page_size'
+    max_page_size = 100
 
 class ActivityTypeViewSet(viewsets.ModelViewSet):
     """
@@ -148,8 +155,11 @@ def _build_ics(activity, method='REQUEST'):
     end = timezone.localtime(activity.end_date).astimezone(dt_timezone.utc).strftime('%Y%m%dT%H%M%SZ')
     now = timezone.now().astimezone(dt_timezone.utc).strftime('%Y%m%dT%H%M%SZ')
     uid = f"activity-{activity.id}@dms-department"
-    description = (activity.description or '').replace('\r', '').replace('\n', '\\n')
-    location = activity.location or ''
+    description_text = activity.description or ''
+    if activity.meeting_link:
+        description_text = f"{description_text}\n\nJoin meeting: {activity.meeting_link}".strip()
+    description = description_text.replace('\r', '').replace('\n', '\\n')
+    location = activity.meeting_link if activity.meeting_mode in {'ONLINE', 'HYBRID'} and activity.meeting_link else (activity.location or '')
     organizer_email = activity.organizer.email if activity.organizer and activity.organizer.email else getattr(settings, 'DEFAULT_FROM_EMAIL', 'noreply@department.local')
     organizer_name = activity.organizer.username if activity.organizer else 'DMS Organizer'
 
@@ -224,9 +234,10 @@ def _dispatch_notifications(activity, method='REQUEST', extra_message=''):
     else:
         notif_title = f"Activity Invitation: {activity.title}"
         loc_info = f"\nLocation: {activity.location}" if activity.location else ""
+        meeting_info = f"\nJoin meeting: {activity.meeting_link}" if activity.meeting_link else ""
         notif_message = (
             f"You have been invited to: {activity.title} ({type_name})\n"
-            f"When: {start_str} – {end_str}{loc_info}\n"
+            f"When: {start_str} – {end_str}{loc_info}{meeting_info}\n"
             f"Organizer: {activity.organizer.username if activity.organizer else 'Department'}"
         )
         notif_type = 'ACTIVITY_INVITE'
@@ -286,35 +297,87 @@ class ActivityViewSet(viewsets.ModelViewSet):
     queryset = Activity.objects.all().select_related('activity_type', 'organizer').prefetch_related('participants', 'recipient_groups', 'participant_categories').order_by('start_date')
     serializer_class = ActivitySerializer
     permission_classes = [IsAuthenticated, IsActivityPrivilegedOrReadOnly, IsOwnerOrAdminOrManager]
+    pagination_class = ActivityPagination
 
     def get_queryset(self):
         user = self.request.user
         if not user.is_authenticated:
             return Activity.objects.none()
         if has_activity_privilege(user):
-            return Activity.objects.all().select_related('activity_type', 'organizer').prefetch_related('participants', 'recipient_groups', 'participant_categories').order_by('start_date')
+            queryset = Activity.objects.all()
+        else:
+            participant_queryset = Activity.objects.filter(
+                Q(include_all_staff=True) |
+                Q(participants=user) |
+                Q(recipient_groups__members=user)
+            ).filter(approval_status='APPROVED')
+            if user.user_category_id:
+                participant_queryset = participant_queryset | Activity.objects.filter(
+                    participant_categories=user.user_category,
+                    approval_status='APPROVED',
+                )
+            queryset = participant_queryset | Activity.objects.filter(organizer=user)
 
-        participant_queryset = Activity.objects.filter(
-            Q(include_all_staff=True) |
-            Q(participants=user) |
-            Q(recipient_groups__members=user)
-        ).filter(approval_status='APPROVED')
-        if user.user_category_id:
-            participant_queryset = participant_queryset | Activity.objects.filter(
-                participant_categories=user.user_category,
-                approval_status='APPROVED',
+        q = self.request.query_params.get('search')
+        status_filter = self.request.query_params.get('status')
+        meeting_mode = self.request.query_params.get('meeting_mode')
+        activity_type = self.request.query_params.get('activity_type')
+        date_from = parse_date(str(self.request.query_params.get('date_from') or '')) if self.request.query_params.get('date_from') else None
+        date_to = parse_date(str(self.request.query_params.get('date_to') or '')) if self.request.query_params.get('date_to') else None
+        upcoming = self.request.query_params.get('upcoming', '').lower() in {'1', 'true', 'yes'}
+        ordering = self.request.query_params.get('ordering') or 'start_date'
+
+        if q:
+            queryset = queryset.filter(
+                Q(title__icontains=q) |
+                Q(description__icontains=q) |
+                Q(location__icontains=q) |
+                Q(activity_type__name__icontains=q) |
+                Q(organizer__username__icontains=q)
             )
-        queryset = participant_queryset | Activity.objects.filter(organizer=user)
-        return queryset.distinct().select_related('activity_type', 'organizer').prefetch_related('participants', 'recipient_groups', 'participant_categories').order_by('start_date')
+        if status_filter:
+            queryset = queryset.filter(status=status_filter)
+        if meeting_mode:
+            queryset = queryset.filter(meeting_mode=meeting_mode)
+        if activity_type:
+            queryset = queryset.filter(activity_type_id=activity_type)
+        if date_from:
+            queryset = queryset.filter(start_date__date__gte=date_from)
+        if date_to:
+            queryset = queryset.filter(start_date__date__lte=date_to)
+        if upcoming:
+            queryset = queryset.filter(start_date__gte=timezone.now()).exclude(status__in=['CANCELLED', 'REJECTED', 'COMPLETED'])
+        if ordering not in {'start_date', '-start_date', 'created_at', '-created_at', 'title', '-title'}:
+            ordering = 'start_date'
+        return queryset.distinct().select_related('activity_type', 'organizer').prefetch_related('participants', 'recipient_groups', 'participant_categories').order_by(ordering)
+
+    @action(detail=False, methods=['get'], url_path='dashboard')
+    def dashboard(self, request):
+        qs = self.filter_queryset(self.get_queryset())
+        now = timezone.now()
+        return Response({
+            'total': qs.count(),
+            'upcoming': qs.filter(start_date__gte=now).exclude(status__in=['CANCELLED', 'REJECTED', 'COMPLETED']).count(),
+            'completed': qs.filter(status='COMPLETED').count(),
+            'physical': qs.filter(meeting_mode='PHYSICAL').count(),
+            'online': qs.filter(meeting_mode='ONLINE').count(),
+            'hybrid': qs.filter(meeting_mode='HYBRID').count(),
+        })
 
     def perform_create(self, serializer):
+        is_admin_scheduler = has_activity_privilege(self.request.user)
         activity = serializer.save(
             organizer=self.request.user,
             submitted_by=self.request.user,
-            approval_status='PENDING',
-            status='PENDING_APPROVAL',
+            approval_status='APPROVED' if is_admin_scheduler else 'PENDING',
+            status='SCHEDULED' if is_admin_scheduler else 'PENDING_APPROVAL',
+            reviewed_by=self.request.user if is_admin_scheduler else None,
+            reviewed_at=timezone.now() if is_admin_scheduler else None,
         )
-        _notify_activity_reviewers(activity)
+        if is_admin_scheduler:
+            _dispatch_notifications(activity, method='REQUEST')
+        else:
+            _notify_activity_reviewers(activity)
 
     def perform_update(self, serializer):
         old = self.get_object()

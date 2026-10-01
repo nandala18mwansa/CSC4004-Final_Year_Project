@@ -50,41 +50,44 @@ export const AuthProvider = ({ children }) => {
     }
   }, [authTokens]);
 
+  const applyTokensAndLoadProfile = async (tokens) => {
+    setAuthTokens(tokens);
+    localStorage.setItem('authTokens', JSON.stringify(tokens));
+    const profileRes = await api.get('profile/');
+    const {
+      id,
+      username: uname,
+      email,
+      role,
+      department,
+      user_category,
+      user_category_name,
+      has_finance_privilege,
+      has_finance_balance_access,
+      has_resource_privilege,
+      has_activity_privilege,
+      is_superuser,
+    } = profileRes.data;
+    setUser({
+      id,
+      username: uname,
+      email,
+      role,
+      department,
+      user_category,
+      user_category_name,
+      has_finance_privilege,
+      has_finance_balance_access,
+      has_resource_privilege,
+      has_activity_privilege,
+      is_superuser,
+    });
+  };
+
   const loginUser = async (username, password) => {
     try {
       const response = await api.post('token/', { username, password });
-      const tokens = response.data;
-      setAuthTokens(tokens);
-      localStorage.setItem('authTokens', JSON.stringify(tokens));
-      const profileRes = await api.get('profile/');
-      const {
-        id,
-        username: uname,
-        email,
-        role,
-        department,
-        user_category,
-        user_category_name,
-        has_finance_privilege,
-        has_finance_balance_access,
-        has_resource_privilege,
-        has_activity_privilege,
-        is_superuser,
-      } = profileRes.data;
-      setUser({
-        id,
-        username: uname,
-        email,
-        role,
-        department,
-        user_category,
-        user_category_name,
-        has_finance_privilege,
-        has_finance_balance_access,
-        has_resource_privilege,
-        has_activity_privilege,
-        is_superuser,
-      });
+      await applyTokensAndLoadProfile(response.data);
       return { success: true };
     } catch (error) {
       const message =
@@ -92,6 +95,21 @@ export const AuthProvider = ({ children }) => {
         error.response?.data?.message ||
         'Invalid credentials. Please try again.';
       console.error('Login failed', error);
+      return { success: false, message };
+    }
+  };
+
+  const loginWithGoogle = async (credential) => {
+    try {
+      const response = await api.post('auth/google/', { credential });
+      await applyTokensAndLoadProfile(response.data);
+      return { success: true };
+    } catch (error) {
+      const message =
+        error.response?.data?.detail ||
+        error.response?.data?.message ||
+        'Google sign-in failed. Please try again.';
+      console.error('Google login failed', error);
       return { success: false, message };
     }
   };
@@ -116,6 +134,7 @@ export const AuthProvider = ({ children }) => {
     user,
     authTokens,
     loginUser,
+    loginWithGoogle,
     logoutUser,
     loading,
   };

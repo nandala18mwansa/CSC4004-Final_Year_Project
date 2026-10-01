@@ -7,15 +7,21 @@ from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.exceptions import PermissionDenied
-from django.http import HttpResponse
+from rest_framework.pagination import PageNumberPagination
+from django.core.files.base import ContentFile
+from django.db import IntegrityError, transaction
+from django.db.models import ProtectedError
+from django.http import HttpResponse, FileResponse
 from django.utils import timezone
+from django.utils.dateparse import parse_date
 
 from users.permissions import IsOwnerOrAdminOrManager, has_resource_privilege
 from .models import (
     Resource, ResourceCategory, Allocation,
     ResourceLocationHistory, ResourceInspection, ResourceStatusHistory,
+    ResourceReportRequest,
 )
-from .serializers import ResourceSerializer, ResourceCategorySerializer, AllocationSerializer
+from .serializers import ResourceSerializer, ResourceCategorySerializer, AllocationSerializer, ResourceReportRequestSerializer
 from users.models import User
 from users.notifications import notify_user, notify_users
 
@@ -41,6 +47,77 @@ def _resource_report_queryset(user):
     raise PermissionDenied("Resources & Assets reporting privilege required.")
 
 
+class ResourcePagination(PageNumberPagination):
+    page_size = 20
+    page_size_query_param = 'page_size'
+    max_page_size = 100
+
+
+def _resource_report_filtered_queryset(user, filters):
+    qs = _resource_report_queryset(user)
+    filters = filters or {}
+    category_id = filters.get('category')
+    if category_id:
+        category = ResourceCategory.objects.filter(pk=category_id).first()
+        if not category:
+            raise ValueError('Invalid resource category filter.')
+        if not has_resource_privilege(user) and category.manager_id != user.id:
+            raise PermissionDenied("You do not have permission to report on this resource category.")
+        qs = qs.filter(category=category)
+    if filters.get('status'):
+        qs = qs.filter(status=filters.get('status'))
+    if filters.get('condition'):
+        qs = qs.filter(condition=filters.get('condition'))
+    if filters.get('is_portable') in (True, False, 'true', 'false', '1', '0'):
+        raw = filters.get('is_portable')
+        qs = qs.filter(is_portable=raw in (True, 'true', '1'))
+    if filters.get('location'):
+        qs = qs.filter(location__icontains=str(filters.get('location')).strip())
+    if filters.get('date_added_start'):
+        qs = qs.filter(date_added__gte=filters.get('date_added_start'))
+    if filters.get('date_added_end'):
+        qs = qs.filter(date_added__lte=filters.get('date_added_end'))
+    if filters.get('inspection_start'):
+        qs = qs.filter(inspections__inspection_date__gte=filters.get('inspection_start'))
+    if filters.get('inspection_end'):
+        qs = qs.filter(inspections__inspection_date__lte=filters.get('inspection_end'))
+    return qs.distinct()
+
+
+def _resource_filter_label(filters):
+    filters = filters or {}
+    parts = []
+    if filters.get('category'):
+        category = ResourceCategory.objects.filter(pk=filters.get('category')).first()
+        if category:
+            parts.append(category.name)
+    if filters.get('status'):
+        parts.append(str(filters.get('status')).replace('_', ' ').title())
+    if filters.get('condition'):
+        parts.append(str(filters.get('condition')).replace('_', ' ').title())
+    if filters.get('is_portable') in (True, 'true', '1'):
+        parts.append('Portable')
+    elif filters.get('is_portable') in (False, 'false', '0'):
+        parts.append('Non-portable')
+    return ', '.join(parts) or 'All Resources'
+
+
+def _render_resource_report(qs, fmt, generated_by, filters):
+    from .reports import generate_pdf, generate_excel, generate_csv, report_filename
+    fmt = str(fmt or 'PDF').upper()
+    if fmt == 'XLSX':
+        fmt = 'EXCEL'
+    label = _resource_filter_label(filters)
+    filename = report_filename(fmt, f'Resource_Register_{label}')
+    if fmt == 'PDF':
+        return generate_pdf(qs, generated_by=generated_by, category_filter=label), 'application/pdf', filename
+    if fmt in ('EXCEL', 'XLSX'):
+        return generate_excel(qs, generated_by=generated_by, category_filter=label), 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', filename
+    if fmt == 'CSV':
+        return generate_csv(qs), 'text/csv; charset=utf-8-sig', filename
+    raise ValueError(f'Unsupported format: {fmt}')
+
+
 class ResourceCategoryViewSet(viewsets.ModelViewSet):
     queryset = ResourceCategory.objects.select_related('manager').all().order_by('name')
     serializer_class = ResourceCategorySerializer
@@ -49,6 +126,8 @@ class ResourceCategoryViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         user = self.request.user
         queryset = super().get_queryset()
+        if self.request.query_params.get('bookable', '').lower() in {'1', 'true', 'yes'}:
+            queryset = queryset.filter(is_portable=True, status='AVAILABLE').exclude(condition__in=['UNDER_REPAIR', 'DAMAGED'])
         if has_resource_privilege(user):
             return queryset
         return queryset
@@ -92,6 +171,75 @@ class ResourceViewSet(viewsets.ModelViewSet):
         if not can_manage_resource_category(self.request.user, instance.category):
             raise PermissionDenied("You can only delete resources under categories assigned to you.")
         instance.delete()
+
+    # ─────────────────────────────────────────────────
+    # Bulk Delete: POST /api/resources/bulk-delete/
+    # ─────────────────────────────────────────────────
+    @action(detail=False, methods=['post'], url_path='bulk-delete')
+    def bulk_delete(self, request):
+        """
+        Permanently delete multiple resources.
+        Body: { resource_ids: [int, ...] }
+        """
+        if not has_resource_privilege(request.user):
+            raise PermissionDenied("Resources & Assets privilege required.")
+
+        resource_ids = request.data.get('resource_ids')
+        if not isinstance(resource_ids, list):
+            return Response({'error': 'resource_ids must be a non-empty list.'}, status=status.HTTP_400_BAD_REQUEST)
+        if not resource_ids:
+            return Response({'error': 'resource_ids must not be empty.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        normalized_ids = []
+        invalid_ids = []
+        seen = set()
+        for raw_id in resource_ids:
+            try:
+                resource_pk = int(raw_id)
+            except (TypeError, ValueError):
+                invalid_ids.append(raw_id)
+                continue
+            if resource_pk <= 0:
+                invalid_ids.append(raw_id)
+                continue
+            if resource_pk not in seen:
+                normalized_ids.append(resource_pk)
+                seen.add(resource_pk)
+
+        if invalid_ids:
+            return Response(
+                {'error': 'resource_ids contains invalid IDs.', 'invalid_ids': invalid_ids},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if not normalized_ids:
+            return Response({'error': 'resource_ids must include at least one valid ID.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        resources = Resource.objects.filter(pk__in=normalized_ids)
+        found_ids = set(resources.values_list('id', flat=True))
+        not_found = [resource_id for resource_id in normalized_ids if resource_id not in found_ids]
+        deleted_count = resources.count()
+
+        try:
+            with transaction.atomic():
+                list(Resource.objects.select_for_update().filter(pk__in=found_ids))
+                resources.delete()
+        except ProtectedError as exc:
+            return Response(
+                {'error': 'One or more resources could not be deleted because related records protect them.', 'detail': str(exc)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except IntegrityError as exc:
+            return Response(
+                {'error': 'Bulk delete could not be completed because of a database integrity constraint.', 'detail': str(exc)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        return Response({
+            'deleted_count': deleted_count,
+            'requested_count': len(resource_ids),
+            'not_found': not_found,
+            'message': f"{deleted_count} asset{'s' if deleted_count != 1 else ''} deleted successfully.",
+        })
 
     # ─────────────────────────────────────────────────
     # Bulk Create: POST /api/resources/bulk-create/
@@ -280,6 +428,133 @@ class ResourceViewSet(viewsets.ModelViewSet):
         return Response({'updated_count': updated, 'location': new_location})
 
     # ─────────────────────────────────────────────────
+    # Bulk Inspect: POST /api/resources/bulk-inspect/
+    # ─────────────────────────────────────────────────
+    @action(detail=False, methods=['post'], url_path='bulk-inspect')
+    def bulk_inspect(self, request):
+        """
+        Record inspections for multiple resources and update their conditions.
+        Body: { inspection_date, resources: [{ resource_id, current_condition, remarks }] }
+        """
+        if not has_resource_privilege(request.user):
+            raise PermissionDenied("Resources & Assets privilege required.")
+
+        inspection_rows = request.data.get('resources')
+        if not isinstance(inspection_rows, list):
+            return Response({'error': 'resources must be a non-empty list.'}, status=status.HTTP_400_BAD_REQUEST)
+        if not inspection_rows:
+            return Response({'error': 'resources must not be empty.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        inspection_date_raw = request.data.get('inspection_date') or timezone.localdate().isoformat()
+        inspection_date = parse_date(str(inspection_date_raw))
+        if not inspection_date:
+            return Response({'error': 'inspection_date must be a valid date in YYYY-MM-DD format.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        valid_conditions = {choice[0] for choice in Resource.CONDITION_CHOICES}
+        normalized_rows = []
+        invalid_rows = []
+        seen = set()
+        duplicate_ids = []
+        for index, row in enumerate(inspection_rows):
+            if not isinstance(row, dict):
+                invalid_rows.append({'index': index, 'error': 'Each resource entry must be an object.'})
+                continue
+            raw_resource_id = row.get('resource_id')
+            try:
+                resource_pk = int(raw_resource_id)
+            except (TypeError, ValueError):
+                invalid_rows.append({'index': index, 'resource_id': raw_resource_id, 'error': 'resource_id must be a valid integer.'})
+                continue
+            if resource_pk <= 0:
+                invalid_rows.append({'index': index, 'resource_id': raw_resource_id, 'error': 'resource_id must be a positive integer.'})
+                continue
+            if resource_pk in seen:
+                duplicate_ids.append(resource_pk)
+                continue
+            seen.add(resource_pk)
+
+            current_condition = str(row.get('current_condition') or '').strip().upper()
+            if current_condition not in valid_conditions:
+                invalid_rows.append({
+                    'index': index,
+                    'resource_id': resource_pk,
+                    'error': f'Invalid condition. Choices: {sorted(valid_conditions)}',
+                })
+                continue
+
+            normalized_rows.append({
+                'resource_id': resource_pk,
+                'current_condition': current_condition,
+                'remarks': str(row.get('remarks') or '').strip(),
+            })
+
+        if invalid_rows:
+            return Response({'error': 'Invalid bulk inspection data.', 'invalid_rows': invalid_rows}, status=status.HTTP_400_BAD_REQUEST)
+        if not normalized_rows:
+            return Response({'error': 'No valid resource inspections were provided.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        resources_by_id = Resource.objects.in_bulk([row['resource_id'] for row in normalized_rows])
+        not_found = [row['resource_id'] for row in normalized_rows if row['resource_id'] not in resources_by_id]
+        if not_found:
+            return Response({'error': 'One or more resources were not found.', 'not_found': not_found}, status=status.HTTP_400_BAD_REQUEST)
+
+        inspected_count = 0
+        try:
+            with transaction.atomic():
+                locked_resources = Resource.objects.select_for_update().filter(pk__in=resources_by_id.keys())
+                resources_by_id = {resource.id: resource for resource in locked_resources}
+                for row in normalized_rows:
+                    resource = resources_by_id[row['resource_id']]
+                    previous = resource.condition
+                    current_condition = row['current_condition']
+                    ResourceInspection.objects.create(
+                        resource=resource,
+                        previous_condition=previous,
+                        current_condition=current_condition,
+                        inspection_date=inspection_date,
+                        remarks=row['remarks'],
+                        inspected_by=request.user,
+                    )
+
+                    update_fields = ['condition']
+                    resource.condition = current_condition
+                    if current_condition == 'UNDER_REPAIR' and resource.status == 'AVAILABLE':
+                        ResourceStatusHistory.objects.create(
+                            resource=resource,
+                            previous_status=resource.status,
+                            new_status='UNDER_REPAIR',
+                            changed_by=request.user,
+                            notes='Status updated automatically because inspection marked the resource under repair.',
+                        )
+                        resource.status = 'UNDER_REPAIR'
+                        update_fields.append('status')
+                    elif current_condition == 'DAMAGED' and resource.status == 'AVAILABLE':
+                        ResourceStatusHistory.objects.create(
+                            resource=resource,
+                            previous_status=resource.status,
+                            new_status='UNAVAILABLE',
+                            changed_by=request.user,
+                            notes='Status updated automatically because inspection marked the resource damaged.',
+                        )
+                        resource.status = 'UNAVAILABLE'
+                        update_fields.append('status')
+                    resource.save(update_fields=update_fields)
+                    inspected_count += 1
+        except IntegrityError as exc:
+            return Response(
+                {'error': 'Bulk inspection could not be completed because of a database integrity constraint.', 'detail': str(exc)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        response_data = {
+            'inspected_count': inspected_count,
+            'message': f"{inspected_count} resource inspection{'s' if inspected_count != 1 else ''} recorded successfully.",
+        }
+        if duplicate_ids:
+            response_data['duplicate_ids'] = duplicate_ids
+        return Response(response_data)
+
+    # ─────────────────────────────────────────────────
     # Record Inspection: POST /api/resources/{id}/record-inspection/
     # ─────────────────────────────────────────────────
     @action(detail=True, methods=['post'], url_path='record-inspection')
@@ -395,59 +670,39 @@ class ResourceViewSet(viewsets.ModelViewSet):
     def _resource_register_response(self, request):
         from rest_framework import status as drf_status
 
-        from .reports import generate_pdf, generate_excel, generate_csv, report_filename
-
+        if not has_resource_privilege(request.user):
+            raise PermissionDenied("Submit a resource report request for approval before downloading reports.")
         fmt = (
             request.query_params.get('export_format')
             or request.query_params.get('file_format')
             or request.query_params.get('format')
             or 'PDF'
         ).upper()
-        category_id = request.query_params.get('category')
-        status_filter = request.query_params.get('status')
-        condition_filter = request.query_params.get('condition')
-
-        qs = _resource_report_queryset(request.user)
-        category_label = "All Categories"
-        if category_id:
-            try:
-                category = ResourceCategory.objects.get(pk=category_id)
-            except ResourceCategory.DoesNotExist:
-                return Response({'error': 'Invalid resource category filter.'}, status=drf_status.HTTP_400_BAD_REQUEST)
-            if not has_resource_privilege(request.user) and category.manager_id != request.user.id:
-                raise PermissionDenied("You do not have permission to report on this resource category.")
-            qs = qs.filter(category=category)
-            category_label = category.name
-        if status_filter:
-            qs = qs.filter(status=status_filter)
-        if condition_filter:
-            qs = qs.filter(condition=condition_filter)
+        filters = {
+            'category': request.query_params.get('category'),
+            'status': request.query_params.get('status'),
+            'condition': request.query_params.get('condition'),
+            'is_portable': request.query_params.get('is_portable'),
+            'location': request.query_params.get('location'),
+            'date_added_start': request.query_params.get('date_added_start'),
+            'date_added_end': request.query_params.get('date_added_end'),
+            'inspection_start': request.query_params.get('inspection_start'),
+            'inspection_end': request.query_params.get('inspection_end'),
+        }
+        filters = {k: v for k, v in filters.items() if v not in ('', None)}
+        try:
+            qs = _resource_report_filtered_queryset(request.user, filters)
+        except ValueError as exc:
+            return Response({'error': str(exc)}, status=drf_status.HTTP_400_BAD_REQUEST)
         if not qs.exists():
-            return Response({'error': 'No resources were found for the selected category.'}, status=drf_status.HTTP_400_BAD_REQUEST)
-
+            return Response({'detail': 'No resources were found for the selected filters.'}, status=drf_status.HTTP_404_NOT_FOUND)
         generated_by = request.user.username
-        filename_suffix = 'Resource_Register' if category_label == 'All Categories' else f'Resource_Register_{category_label}'
-        filename = report_filename(fmt, filename_suffix)
-
-        if fmt == 'PDF':
-            content = generate_pdf(qs, generated_by=generated_by, category_filter=category_label)
-            resp = HttpResponse(content, content_type='application/pdf')
-            resp['Content-Disposition'] = f'attachment; filename="{filename}"'
-        elif fmt in ('EXCEL', 'XLSX'):
-            content = generate_excel(qs, generated_by=generated_by, category_filter=category_label)
-            resp = HttpResponse(
-                content,
-                content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-            )
-            fn = report_filename('EXCEL', filename_suffix)
-            resp['Content-Disposition'] = f'attachment; filename="{fn}"'
-        elif fmt == 'CSV':
-            content = generate_csv(qs)
-            resp = HttpResponse(content, content_type='text/csv; charset=utf-8-sig')
-            resp['Content-Disposition'] = f'attachment; filename="{filename}"'
-        else:
-            return Response({'error': f'Unsupported format: {fmt}'}, status=400)
-
+        try:
+            content, ctype, filename = _render_resource_report(qs, fmt, generated_by, filters)
+        except ValueError as exc:
+            return Response({'error': str(exc)}, status=400)
+        resp = HttpResponse(content, content_type=ctype)
+        resp['Content-Disposition'] = f'attachment; filename="{filename}"'
         return resp
 
     @action(detail=True, methods=['post'], url_path='change-status')
@@ -679,3 +934,108 @@ class AllocationViewSet(viewsets.ModelViewSet):
             send_email=True,
         )
         return Response(AllocationSerializer(booking).data)
+
+
+class ResourceReportRequestViewSet(viewsets.ModelViewSet):
+    serializer_class = ResourceReportRequestSerializer
+    permission_classes = [IsAuthenticated]
+    pagination_class = ResourcePagination
+
+    def get_queryset(self):
+        qs = ResourceReportRequest.objects.select_related('requested_by', 'processed_by')
+        if not has_resource_privilege(self.request.user):
+            qs = qs.filter(requested_by=self.request.user)
+        status_filter = self.request.query_params.get('status')
+        if status_filter:
+            qs = qs.filter(status=status_filter.upper())
+        return qs.order_by('-requested_at')
+
+    def perform_create(self, serializer):
+        request_obj = serializer.save(requested_by=self.request.user, status='PENDING')
+        reviewers = _resource_reviewers().exclude(id=self.request.user.id)
+        notify_users(
+            recipients=reviewers,
+            title='New resource report request',
+            message=f'{self.request.user.username} requested {request_obj.get_report_type_display()} ({request_obj.report_format}).',
+            notification_type='GENERAL',
+            link='/resources',
+            send_email=False,
+        )
+
+    def perform_update(self, serializer):
+        raise PermissionDenied('Resource report requests are processed using Approve or Reject actions.')
+
+    def perform_destroy(self, instance):
+        if instance.status != 'PENDING' or instance.requested_by_id != self.request.user.id:
+            raise PermissionDenied('Only your own pending report request can be cancelled.')
+        instance.delete()
+
+    @action(detail=True, methods=['post'], url_path='approve')
+    def approve(self, request, pk=None):
+        if not has_resource_privilege(request.user):
+            raise PermissionDenied("Resources & Assets privilege required.")
+        with transaction.atomic():
+            obj = ResourceReportRequest.objects.select_for_update().select_related('requested_by').get(pk=pk)
+            if obj.status != 'PENDING':
+                return Response({'status': 'Only pending report requests can be approved.'}, status=400)
+            if obj.requested_by_id == request.user.id:
+                raise PermissionDenied("You cannot approve your own resource report request.")
+            try:
+                qs = _resource_report_filtered_queryset(request.user, obj.filters)
+            except ValueError as exc:
+                return Response({'filters': str(exc)}, status=400)
+            if not qs.exists():
+                return Response({'detail': 'No resources were found for the requested filters.'}, status=404)
+            content, ctype, filename = _render_resource_report(qs, obj.report_format, request.user.username, obj.filters)
+            obj.generated_report.save(filename, ContentFile(content), save=False)
+            obj.status = 'COMPLETED'
+            obj.processed_by = request.user
+            obj.processed_at = timezone.now()
+            obj.rejection_reason = ''
+            obj.response_notes = 'Approved. The generated resource report is available for download.'
+            obj.save()
+        notify_user(
+            obj.requested_by,
+            title='Resource report ready',
+            message=f'Your resource report request {obj.reference} was approved and is ready to download.',
+            notification_type='GENERAL',
+            link='/resources',
+            send_email=False,
+        )
+        return Response(ResourceReportRequestSerializer(obj, context={'request': request}).data)
+
+    @action(detail=True, methods=['post'], url_path='reject')
+    def reject(self, request, pk=None):
+        if not has_resource_privilege(request.user):
+            raise PermissionDenied("Resources & Assets privilege required.")
+        reason = str(request.data.get('reason') or request.data.get('rejection_reason') or '').strip()
+        if not reason:
+            return Response({'reason': 'A rejection reason is required.'}, status=400)
+        with transaction.atomic():
+            obj = ResourceReportRequest.objects.select_for_update().select_related('requested_by').get(pk=pk)
+            if obj.status != 'PENDING':
+                return Response({'status': 'Only pending report requests can be rejected.'}, status=400)
+            if obj.requested_by_id == request.user.id:
+                raise PermissionDenied("You cannot reject your own resource report request.")
+            obj.status = 'REJECTED'
+            obj.rejection_reason = reason
+            obj.response_notes = ''
+            obj.processed_by = request.user
+            obj.processed_at = timezone.now()
+            obj.save(update_fields=['status', 'rejection_reason', 'response_notes', 'processed_by', 'processed_at'])
+        notify_user(
+            obj.requested_by,
+            title='Resource report request rejected',
+            message=f'Your resource report request {obj.reference} was rejected. Reason: {reason}',
+            notification_type='GENERAL',
+            link='/resources',
+            send_email=False,
+        )
+        return Response(ResourceReportRequestSerializer(obj, context={'request': request}).data)
+
+    @action(detail=True, methods=['get'], url_path='download')
+    def download(self, request, pk=None):
+        obj = self.get_object()
+        if obj.status != 'COMPLETED' or not obj.generated_report:
+            return Response({'detail': 'The report is not available.'}, status=400)
+        return FileResponse(obj.generated_report.open('rb'), as_attachment=True, filename=obj.generated_report.name.rsplit('/', 1)[-1])

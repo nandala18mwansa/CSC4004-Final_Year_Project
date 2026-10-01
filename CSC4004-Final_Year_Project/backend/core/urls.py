@@ -15,12 +15,14 @@ from finance.views import (
     ExpenseViewSet,
     ApprovalViewSet,
     BudgetTransactionViewSet,
+    DepartmentalIncomeViewSet,
+    DepartmentalIncomeAllocationViewSet,
     FinancialSummaryRequestViewSet,
     FinanceNotificationViewSet,
     FinanceAuditLogViewSet,
 )
 from activities.views import ActivityViewSet, ActivityTypeViewSet
-from resources.views import ResourceViewSet, ResourceCategoryViewSet, AllocationViewSet
+from resources.views import ResourceViewSet, ResourceCategoryViewSet, AllocationViewSet, ResourceReportRequestViewSet
 from users.views import (
     RegisterView,
     ProfileView,
@@ -28,6 +30,7 @@ from users.views import (
     UserManagementViewSet,
     UserGroupCategoryViewSet,
     CustomTokenObtainPairView,
+    GoogleLoginView,
     NotificationViewSet,
     RecipientGroupViewSet,
     PasswordResetRequestView,
@@ -39,6 +42,8 @@ router.register(r'budgets', BudgetViewSet, basename='budget')
 router.register(r'expenses', ExpenseViewSet, basename='expense')
 router.register(r'approvals', ApprovalViewSet)
 router.register(r'budget-transactions', BudgetTransactionViewSet, basename='budget-transaction')
+router.register(r'departmental-income', DepartmentalIncomeViewSet, basename='departmental-income')
+router.register(r'departmental-income-allocations', DepartmentalIncomeAllocationViewSet, basename='departmental-income-allocation')
 router.register(r'financial-summary-requests', FinancialSummaryRequestViewSet, basename='financial-summary-request')
 router.register(r'finance-notifications', FinanceNotificationViewSet, basename='finance-notification')
 router.register(r'finance-audit-log', FinanceAuditLogViewSet, basename='finance-audit-log')
@@ -47,6 +52,7 @@ router.register(r'activities', ActivityViewSet, basename='activity')
 router.register(r'resource-categories', ResourceCategoryViewSet, basename='resource-category')
 router.register(r'resources', ResourceViewSet)
 router.register(r'allocations', AllocationViewSet)
+router.register(r'resource-report-requests', ResourceReportRequestViewSet, basename='resource-report-request')
 router.register(r'users-admin', UserManagementViewSet, basename='user-management')
 router.register(r'user-categories', UserGroupCategoryViewSet, basename='user-category')
 router.register(r'notifications', NotificationViewSet, basename='notification')
@@ -70,11 +76,13 @@ def api_root_view(request):
             "expenses": "/api/expenses/",
             "approvals": "/api/approvals/",
             "financial_summary_requests": "/api/financial-summary-requests/",
+            "departmental_income": "/api/departmental-income/",
             "activity_types": "/api/activity-types/",
             "activities": "/api/activities/",
             "resources": "/api/resources/",
             "resource_categories": "/api/resource-categories/",
             "allocations": "/api/allocations/",
+            "resource_report_requests": "/api/resource-report-requests/",
             "notifications": "/api/notifications/",
             "recipient_groups": "/api/recipient-groups/",
         }
@@ -89,6 +97,7 @@ urlpatterns = [
     path('api/profile/', ProfileView.as_view(), name='profile'),
     path('api/users/', UserListView.as_view(), name='user-list'),
     path('api/token/', CustomTokenObtainPairView.as_view(), name='token_obtain_pair'),
+    path('api/auth/google/', GoogleLoginView.as_view(), name='google-login'),
     path('api/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
     path('api/password-reset/', PasswordResetRequestView.as_view(), name='password-reset'),
     path('api/password-reset/confirm/', PasswordResetConfirmView.as_view(), name='password-reset-confirm'),

@@ -1,4 +1,4 @@
-const Modal = ({ title, children, footer, onClose, onSubmit, isOpen = true }) => {
+const Modal = ({ title, children, footer, onClose, onSubmit, isOpen = true, maxWidth }) => {
   if (!isOpen) return null;
   const content = (
     <>
@@ -9,7 +9,13 @@ const Modal = ({ title, children, footer, onClose, onSubmit, isOpen = true }) =>
 
   return (
     <div className="modal-overlay" onClick={(event) => event.target === event.currentTarget && onClose()}>
-      <div className="modal-content" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+      <div
+        className="modal-content"
+        style={maxWidth ? { maxWidth } : undefined}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="modal-title"
+      >
         <div className="modal-header">
           <h2 className="modal-title" id="modal-title">{title}</h2>
           <button type="button" className="modal-close" onClick={onClose} aria-label="Close modal">&times;</button>

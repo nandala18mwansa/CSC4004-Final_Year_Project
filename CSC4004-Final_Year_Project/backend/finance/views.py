@@ -22,10 +22,12 @@ from rest_framework.response import Response
 from users.permissions import IsFinancePrivileged, has_finance_privilege
 from users.notifications import notify_user, notify_users
 from .models import (Budget, Expense, Approval, BudgetTransaction, report_ref,
-                     FinancialSummaryRequest, FinanceNotification, FinanceAuditLog)
+                     FinancialSummaryRequest, FinanceNotification, FinanceAuditLog,
+                     DepartmentalIncome, DepartmentalIncomeAllocation)
 from .serializers import (BudgetSerializer, ExpenseSerializer, ApprovalSerializer,
                           BudgetTransactionSerializer, FinancialSummaryRequestSerializer,
-                          FinanceNotificationSerializer, FinanceAuditLogSerializer)
+                          FinanceNotificationSerializer, FinanceAuditLogSerializer,
+                          DepartmentalIncomeSerializer, DepartmentalIncomeAllocationSerializer)
 from .reports import _money, _render_report_file, _report_filename, _format_date
 
 MONEY_ZERO = Decimal('0.00')
@@ -48,8 +50,8 @@ def _date_param(value, field_name, required=False):
     return parsed
 
 
-def _movement(tx):
-    if tx.action_type in ('TOP_UP', 'REFUND'):
+def _movement(tx, budget_scoped=False):
+    if tx.action_type in ('TOP_UP', 'REFUND') or (budget_scoped and tx.action_type == 'ALLOCATION'):
         return tx.amount
     if tx.action_type == 'DEDUCTION':
         return -tx.amount
@@ -59,6 +61,17 @@ def _movement(tx):
     return MONEY_ZERO
 
 
+def _normalize_transaction_type(value):
+    value = str(value or '').upper()
+    if not value or value == 'ALL':
+        return 'ALL'
+    if value == 'EXPENSE':
+        return 'DEDUCTION'
+    if value in ('TRANSFER', 'ALLOCATIONS'):
+        return 'ALLOCATION'
+    return value
+
+
 def _filter_transactions(qs, start=None, end=None, budget_id=None, action_type=None):
     if start:
         qs = qs.filter(timestamp__date__gte=start)
@@ -66,8 +79,11 @@ def _filter_transactions(qs, start=None, end=None, budget_id=None, action_type=N
         qs = qs.filter(timestamp__date__lte=end)
     if budget_id:
         qs = qs.filter(budget_id=budget_id)
-    if action_type:
-        qs = qs.filter(action_type=action_type.upper())
+    action_type = _normalize_transaction_type(action_type)
+    if action_type and action_type not in ('ALL', 'INCOME'):
+        qs = qs.filter(action_type=action_type)
+    elif action_type == 'INCOME':
+        qs = qs.none()
     return qs
 
 
@@ -75,8 +91,23 @@ def _collect_financial_report(start=None, end=None, budget_id=None, action_type=
     if start and end and start > end:
         raise ValidationError({'end': 'End date cannot be before start date.'})
 
+    action_type = _normalize_transaction_type(action_type)
+    include_income = action_type == 'INCOME' or (action_type == 'ALL' and not budget_id)
+    include_transactions = action_type != 'INCOME'
+    budget_scoped = bool(budget_id)
+
     base = BudgetTransaction.objects.select_related('budget', 'expense', 'performed_by')
-    period_qs = _filter_transactions(base, start, end, budget_id, action_type)
+    period_qs = _filter_transactions(base, start, end, budget_id, action_type) if include_transactions else base.none()
+
+    income_qs = DepartmentalIncome.objects.select_related('recorded_by').prefetch_related('allocations__budget')
+    if start:
+        income_qs = income_qs.filter(date_received__gte=start)
+    if end:
+        income_qs = income_qs.filter(date_received__lte=end)
+    if budget_id:
+        income_qs = income_qs.filter(allocations__budget_id=budget_id).distinct()
+    if not include_income:
+        income_qs = income_qs.none()
 
     # Opening balance is derived from all cash movements before the selected period.
     opening_qs = base
@@ -86,19 +117,53 @@ def _collect_financial_report(start=None, end=None, budget_id=None, action_type=
         opening_qs = opening_qs.filter(timestamp__date__lt=start)
     else:
         opening_qs = opening_qs.none()
-    opening_balance = sum((_movement(tx) for tx in opening_qs.iterator()), MONEY_ZERO)
+    opening_balance = sum((_movement(tx, budget_scoped=budget_scoped) for tx in opening_qs.iterator()), MONEY_ZERO)
+    if not budget_id and start:
+        opening_balance += DepartmentalIncome.objects.filter(date_received__lt=start).aggregate(v=Sum('amount'))['v'] or MONEY_ZERO
 
-    income = period_qs.filter(action_type='TOP_UP').aggregate(v=Sum('amount'))['v'] or MONEY_ZERO
+    if budget_id:
+        income = DepartmentalIncomeAllocation.objects.filter(
+            income__in=income_qs,
+            budget_id=budget_id,
+        ).aggregate(v=Sum('amount'))['v'] or MONEY_ZERO
+    else:
+        income = income_qs.aggregate(v=Sum('amount'))['v'] or MONEY_ZERO
+    top_ups = period_qs.filter(action_type='TOP_UP').aggregate(v=Sum('amount'))['v'] or MONEY_ZERO
+    allocations = period_qs.filter(action_type='ALLOCATION').aggregate(v=Sum('amount'))['v'] or MONEY_ZERO
     deductions = period_qs.filter(action_type='DEDUCTION').aggregate(v=Sum('amount'))['v'] or MONEY_ZERO
     refunds = period_qs.filter(action_type='REFUND').aggregate(v=Sum('amount'))['v'] or MONEY_ZERO
-    adjustments = sum((_movement(tx) for tx in period_qs.filter(action_type='ADJUSTMENT').iterator()), MONEY_ZERO)
-    net_movement = income - deductions + refunds + adjustments
+    adjustments = sum((_movement(tx, budget_scoped=budget_scoped) for tx in period_qs.filter(action_type='ADJUSTMENT').iterator()), MONEY_ZERO)
+    net_movement = income + top_ups - deductions + refunds + adjustments + (allocations if budget_scoped else MONEY_ZERO)
     closing_balance = opening_balance + net_movement
 
     statement = []
     running = opening_balance
+    for income_record in income_qs.order_by('date_received', 'id'):
+        if budget_id:
+            related_allocated = sum(
+                (alloc.amount for alloc in income_record.allocations.all() if str(alloc.budget_id) == str(budget_id)),
+                MONEY_ZERO,
+            )
+            credit = related_allocated
+            description = f"Income received from {income_record.source_name}; allocated to selected budget"
+        else:
+            credit = income_record.amount
+            description = income_record.description or f"Income received from {income_record.source_name}"
+        running += credit
+        statement.append({
+            'date': income_record.date_received,
+            'reference': income_record.reference,
+            'type': 'INCOME',
+            'description': description,
+            'budget': 'Departmental Funds' if not budget_id else '',
+            'debit': MONEY_ZERO,
+            'credit': credit,
+            'balance_before': running - credit,
+            'balance_after': running,
+            'performed_by': income_record.recorded_by.username if income_record.recorded_by else 'System',
+        })
     for tx in period_qs.order_by('timestamp', 'id'):
-        movement = _movement(tx)
+        movement = _movement(tx, budget_scoped=budget_scoped)
         debit = -movement if movement < 0 else MONEY_ZERO
         credit = movement if movement > 0 else MONEY_ZERO
         if budget_id:
@@ -106,6 +171,8 @@ def _collect_financial_report(start=None, end=None, budget_id=None, action_type=
         else:
             before, after = running, running + movement
         running += movement
+        if not budget_id and tx.action_type == 'ALLOCATION':
+            before = after = running
         statement.append({
             'date': timezone.localtime(tx.timestamp).date(),
             'reference': tx.reference,
@@ -118,6 +185,8 @@ def _collect_financial_report(start=None, end=None, budget_id=None, action_type=
             'balance_after': after,
             'performed_by': tx.performed_by.username if tx.performed_by else 'System',
         })
+
+    statement.sort(key=lambda row: (row['date'], row['reference']))
 
     expense_qs = Expense.objects.select_related('budget', 'requested_by', 'processed_by')
     if start:
@@ -133,7 +202,10 @@ def _collect_financial_report(start=None, end=None, budget_id=None, action_type=
         'period': {'start': start, 'end': end},
         'summary': {
             'opening_balance': opening_balance,
-            'funds_added': income,
+            'income': income,
+            'funds_added': income + top_ups,
+            'direct_budget_top_ups': top_ups,
+            'allocations': allocations,
             'approved_expenditure': deductions,
             'refunds': refunds,
             'adjustments': adjustments,
@@ -160,6 +232,13 @@ def _decimal_from_request(value, field_name='amount'):
 def _audit(actor, action, obj, details=''):
     FinanceAuditLog.objects.create(actor=actor, action=action, object_type=obj.__class__.__name__,
                                    object_reference=getattr(obj, 'reference', str(obj.pk)), details=details)
+
+
+def _user_display_name(user):
+    if not user or not user.is_authenticated:
+        return 'System'
+    full_name = user.get_full_name().strip()
+    return full_name or user.username
 
 
 def _notify(recipient, kind, title, message, expense=None, report_request=None):
@@ -400,6 +479,12 @@ class BudgetTransactionViewSet(viewsets.ReadOnlyModelViewSet):
         if fmt == 'XLSX':
             fmt = 'EXCEL'
         report = _collect_financial_report(start, end, request.query_params.get('budget'), request.query_params.get('type'))
+        report['generated_by'] = _user_display_name(request.user)
+        if request.query_params.get('budget'):
+            budget = Budget.objects.filter(pk=request.query_params.get('budget')).first()
+            report['filters'] = {'budget': budget.department if budget else '', 'transaction_type': _normalize_transaction_type(request.query_params.get('type'))}
+        else:
+            report['filters'] = {'budget': 'All Budget Categories', 'transaction_type': _normalize_transaction_type(request.query_params.get('type'))}
         if not report['statement']:
             from rest_framework.exceptions import NotFound
             raise NotFound('No financial transactions found for the specified interval.')
@@ -420,19 +505,112 @@ class BudgetTransactionViewSet(viewsets.ReadOnlyModelViewSet):
             if b.total_amount and (b.current_balance/b.total_amount) <= Decimal('0.10'):
                 alerts.append({'type':'LOW_BALANCE','budget_id':b.id,'message':f'{b.department} has 10% or less remaining.'})
         return Response({'total_allocated':allocated,'available_balance':available,'approved_expenditure':allocated-available,
+                         'total_income_received':DepartmentalIncome.objects.aggregate(v=Sum('amount'))['v'] or MONEY_ZERO,
+                         'unallocated_income':DepartmentalIncome.objects.aggregate(v=Sum('unallocated_amount'))['v'] or MONEY_ZERO,
                          'pending_expenses':pending.count(),'attention':alerts[:5],
                          'pending_expense_preview':ExpenseSerializer(pending.order_by('date_requested')[:5],many=True,context={'request':request}).data,
                          'pending_report_requests':FinancialSummaryRequest.objects.filter(status='PENDING').count()})
+
+
+class DepartmentalIncomeViewSet(viewsets.ModelViewSet):
+    serializer_class = DepartmentalIncomeSerializer
+    permission_classes = [IsAuthenticated, IsFinancePrivileged]
+    pagination_class = FinancePagination
+
+    def get_queryset(self):
+        qs = DepartmentalIncome.objects.select_related('recorded_by').prefetch_related('allocations__budget', 'allocations__allocated_by')
+        start = _date_param(self.request.query_params.get('start'), 'start')
+        end = _date_param(self.request.query_params.get('end'), 'end')
+        status_value = self.request.query_params.get('status')
+        q = self.request.query_params.get('search')
+        if start:
+            qs = qs.filter(date_received__gte=start)
+        if end:
+            qs = qs.filter(date_received__lte=end)
+        if status_value:
+            qs = qs.filter(allocation_status=status_value.upper())
+        if q:
+            qs = qs.filter(Q(reference__icontains=q) | Q(source_name__icontains=q) | Q(description__icontains=q) | Q(external_reference__icontains=q))
+        return qs.order_by('-date_received', '-id')
+
+    def perform_create(self, serializer):
+        income = serializer.save(recorded_by=self.request.user)
+        _audit(self.request.user, 'INCOME_RECORDED', income, f'{_money(income.amount)} from {income.source_name}')
+
+    @action(detail=True, methods=['post'], url_path='allocate')
+    def allocate(self, request, pk=None):
+        amount = _decimal_from_request(request.data.get('amount'))
+        budget_id = request.data.get('budget')
+        if not budget_id:
+            raise ValidationError({'budget': 'Target budget is required.'})
+        notes = str(request.data.get('notes') or '').strip()
+        with transaction.atomic():
+            income = DepartmentalIncome.objects.select_for_update().get(pk=pk)
+            budget = Budget.objects.select_for_update().get(pk=budget_id)
+            if amount > income.unallocated_amount:
+                raise ValidationError({'amount': 'Allocation exceeds the unallocated income balance.'})
+            before = budget.current_balance
+            budget.total_amount += amount
+            budget.current_balance += amount
+            budget.save(update_fields=['total_amount', 'current_balance'])
+            income.unallocated_amount -= amount
+            income.save(update_fields=['unallocated_amount', 'allocation_status', 'updated_at'])
+            tx = BudgetTransaction.objects.create(
+                budget=budget,
+                action_type='ALLOCATION',
+                amount=amount,
+                balance_before=before,
+                balance_after=budget.current_balance,
+                performed_by=request.user,
+                notes=notes or f'Allocated from income {income.reference}: {income.source_name}',
+            )
+            allocation = DepartmentalIncomeAllocation.objects.create(
+                income=income,
+                budget=budget,
+                transaction=tx,
+                amount=amount,
+                allocated_by=request.user,
+                notes=notes,
+            )
+            _audit(request.user, 'INCOME_ALLOCATED', allocation, f'{income.reference} -> {budget.department}: {_money(amount)}')
+        return Response({
+            'income': DepartmentalIncomeSerializer(income, context={'request': request}).data,
+            'allocation': DepartmentalIncomeAllocationSerializer(allocation, context={'request': request}).data,
+            'budget': BudgetSerializer(budget, context={'request': request}).data,
+        })
+
+
+class DepartmentalIncomeAllocationViewSet(viewsets.ReadOnlyModelViewSet):
+    serializer_class = DepartmentalIncomeAllocationSerializer
+    permission_classes = [IsAuthenticated, IsFinancePrivileged]
+    pagination_class = FinancePagination
+
+    def get_queryset(self):
+        qs = DepartmentalIncomeAllocation.objects.select_related('income', 'budget', 'transaction', 'allocated_by')
+        budget = self.request.query_params.get('budget')
+        if budget:
+            qs = qs.filter(budget_id=budget)
+        return qs.order_by('-allocated_at', '-id')
 
 
 class FinancialSummaryRequestViewSet(viewsets.ModelViewSet):
     serializer_class=FinancialSummaryRequestSerializer; permission_classes=[IsAuthenticated]; pagination_class=FinancePagination
 
     def get_queryset(self):
-        qs=FinancialSummaryRequest.objects.select_related('requested_by','processed_by')
+        qs=FinancialSummaryRequest.objects.select_related('requested_by','processed_by','budget')
         if not has_finance_privilege(self.request.user): qs=qs.filter(requested_by=self.request.user)
         st=self.request.query_params.get('status')
+        start=_date_param(self.request.query_params.get('start'), 'start')
+        end=_date_param(self.request.query_params.get('end'), 'end')
+        budget=self.request.query_params.get('budget')
+        requester=self.request.query_params.get('requester')
+        fmt=self.request.query_params.get('format') or self.request.query_params.get('report_format')
         if st: qs=qs.filter(status=st.upper())
+        if start: qs=qs.filter(requested_at__date__gte=start)
+        if end: qs=qs.filter(requested_at__date__lte=end)
+        if budget: qs=qs.filter(budget_id=budget)
+        if requester and has_finance_privilege(self.request.user): qs=qs.filter(requested_by_id=requester)
+        if fmt: qs=qs.filter(report_format=str(fmt).upper())
         return qs.order_by('-requested_at')
 
     def perform_create(self, serializer):
@@ -450,10 +628,15 @@ class FinancialSummaryRequestViewSet(viewsets.ModelViewSet):
     @action(detail=True,methods=['post'],permission_classes=[IsAuthenticated,IsFinancePrivileged])
     def approve(self,request,pk=None):
         with transaction.atomic():
-            obj=FinancialSummaryRequest.objects.select_for_update().select_related('requested_by').get(pk=pk)
+            obj=FinancialSummaryRequest.objects.select_for_update().select_related('requested_by', 'budget').get(pk=pk)
             if obj.status!='PENDING': raise ValidationError({'status':'Only pending report requests can be approved.'})
             if obj.requested_by_id == request.user.id: raise PermissionDenied('You cannot approve your own report request.')
-            report=_collect_financial_report(obj.report_start,obj.report_end,reference=obj.reference)
+            report=_collect_financial_report(obj.report_start,obj.report_end,obj.budget_id,obj.transaction_type,reference=obj.reference)
+            report['generated_by'] = _user_display_name(request.user)
+            report['filters'] = {
+                'budget': obj.budget.department if obj.budget else 'All Budget Categories',
+                'transaction_type': obj.transaction_type or 'ALL',
+            }
             content,ctype=_render_report_file(report,obj.report_format)
             filename=_report_filename(obj.report_format,obj.report_start,obj.report_end,obj.reference)
             obj.generated_report.save(filename,ContentFile(content),save=False)

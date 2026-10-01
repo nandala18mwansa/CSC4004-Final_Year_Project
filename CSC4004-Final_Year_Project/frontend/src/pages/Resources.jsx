@@ -1,4 +1,4 @@
-import { useState, useEffect, useContext, useCallback, useRef } from 'react';
+import { useState, useEffect, useContext, useCallback, useMemo } from 'react';
 import api from '../utils/api';
 import Modal from '../components/Modal';
 import { AuthContext } from '../context/AuthContextValue';
@@ -48,20 +48,21 @@ const ConditionBadge = ({ condition }) => {
 
 const Resources = () => {
   const { user } = useContext(AuthContext);
-  const userRole = user?.role;
 
   const [resources, setResources] = useState([]);
   const [resourceCategories, setResourceCategories] = useState([]);
   const [allocations, setAllocations] = useState([]);
+  const [reportRequests, setReportRequests] = useState([]);
   const [activities, setActivities] = useState([]);
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const [, setError] = useState('');
   const [resourcesError, setResourcesError] = useState('');
   const [categoriesError, setCategoriesError] = useState('');
   const [allocationsError, setAllocationsError] = useState('');
-  const [activitiesError, setActivitiesError] = useState('');
-  const [usersError, setUsersError] = useState('');
+  const [reportRequestsError, setReportRequestsError] = useState('');
+  const [, setActivitiesError] = useState('');
+  const [, setUsersError] = useState('');
   const [activeTab, setActiveTab] = useState('overview');
 
   // Filters
@@ -73,6 +74,7 @@ const Resources = () => {
   const [bookingPage, setBookingPage] = useState(1);
   const [bookingSearch, setBookingSearch] = useState('');
   const [bookingStatusFilter, setBookingStatusFilter] = useState('ALL');
+  const [reportRequestStatusFilter, setReportRequestStatusFilter] = useState('ALL');
 
   // Selection (for bulk ops)
   const [selectedIds, setSelectedIds] = useState(new Set());
@@ -117,6 +119,14 @@ const Resources = () => {
   const [assignLocation, setAssignLocation] = useState('');
   const [assignNotes, setAssignNotes] = useState('');
 
+  // Bulk inspection
+  const [bulkInspectionDate, setBulkInspectionDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [bulkInspectionRows, setBulkInspectionRows] = useState([]);
+  const [bulkApplyCondition, setBulkApplyCondition] = useState('GOOD');
+  const [bulkCommonRemarks, setBulkCommonRemarks] = useState('');
+
+  const [successMessage, setSuccessMessage] = useState('');
+
   // Booking form
   const [bookResourceId, setBookResourceId] = useState('');
   const [bookActivityId, setBookActivityId] = useState('');
@@ -142,17 +152,26 @@ const Resources = () => {
   // Export
   const [exportFormat, setExportFormat] = useState('PDF');
   const [exportCategory, setExportCategory] = useState('');
+  const [reportFilterStatus, setReportFilterStatus] = useState('');
+  const [reportFilterCondition, setReportFilterCondition] = useState('');
+  const [reportFilterPortable, setReportFilterPortable] = useState('');
+  const [reportFilterLocation, setReportFilterLocation] = useState('');
+  const [reportDateFrom, setReportDateFrom] = useState('');
+  const [reportDateTo, setReportDateTo] = useState('');
+  const [selectedReportRequest, setSelectedReportRequest] = useState(null);
+  const [reportDecisionReason, setReportDecisionReason] = useState('');
 
   const canManage = Boolean(user?.is_superuser || user?.has_resource_privilege);
-  const availableResources = resources.filter((r) => r.status === 'AVAILABLE' && !['UNDER_REPAIR', 'DAMAGED'].includes(r.condition));
+  const availableResources = resources.filter((r) => r.is_portable && r.status === 'AVAILABLE' && !['UNDER_REPAIR', 'DAMAGED'].includes(r.condition));
 
   const loadAll = useCallback(async () => {
-    const [rRes, catRes, allocRes, actRes, usersRes] = await Promise.allSettled([
+    const [rRes, catRes, allocRes, actRes, usersRes, reportReqRes] = await Promise.allSettled([
       api.get('resources/'),
       api.get('resource-categories/'),
       api.get('allocations/'),
       api.get('activities/'),
       canManage ? api.get('users-admin/') : Promise.resolve({ data: [] }),
+      api.get('resource-report-requests/?page_size=100'),
     ]);
 
     if (rRes.status === 'fulfilled') {
@@ -185,6 +204,12 @@ const Resources = () => {
     } else if (canManage) {
       setUsersError('Unable to load users for category manager selection.');
     }
+    if (reportReqRes.status === 'fulfilled') {
+      setReportRequests(toArray(reportReqRes.value.data));
+      setReportRequestsError('');
+    } else {
+      setReportRequestsError('Unable to load resource report requests.');
+    }
     setError('');
     setLoading(false);
   }, [canManage]);
@@ -196,7 +221,7 @@ const Resources = () => {
   }, [loadAll]);
 
   // ── Filtering ──────────────────────────────────────────
-  const filtered = resources.filter((r) => {
+  const filtered = useMemo(() => resources.filter((r) => {
     if (selectedCategory !== 'ALL' && String(r.category) !== String(selectedCategory)) return false;
     if (statusFilter !== 'ALL' && r.status !== statusFilter) return false;
     if (conditionFilter !== 'ALL' && r.condition !== conditionFilter) return false;
@@ -205,17 +230,34 @@ const Resources = () => {
       if (!r.name?.toLowerCase().includes(q) && !(r.resource_id || '').toLowerCase().includes(q) && !(r.location || '').toLowerCase().includes(q)) return false;
     }
     return true;
-  });
+  }), [resources, selectedCategory, statusFilter, conditionFilter, searchQuery]);
   const resourcePageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const pagedResources = filtered.slice((resourcePage - 1) * PAGE_SIZE, resourcePage * PAGE_SIZE);
+  const pagedResourceIds = pagedResources.map((r) => r.id);
+  const selectedResources = resources.filter((r) => selectedIds.has(r.id));
+  const selectedPreview = selectedResources.slice(0, 6);
+  const allPageSelected = pagedResourceIds.length > 0 && pagedResourceIds.every((id) => selectedIds.has(id));
+  const somePageSelected = pagedResourceIds.some((id) => selectedIds.has(id));
 
   useEffect(() => {
     setResourcePage(1);
   }, [selectedCategory, statusFilter, conditionFilter, searchQuery]);
 
+  useEffect(() => {
+    const filteredIds = new Set(filtered.map((r) => r.id));
+    setSelectedIds((prev) => {
+      const next = new Set([...prev].filter((id) => filteredIds.has(id)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [filtered]);
+
   // ── Selection ──────────────────────────────────────────
   const toggleSelect = (id) => setSelectedIds((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
-  const selectAll = () => setSelectedIds(new Set(filtered.map((r) => r.id)));
+  const selectPage = () => setSelectedIds((prev) => new Set([...prev, ...pagedResourceIds]));
+  const clearPageSelection = () => setSelectedIds((prev) => {
+    const pageIds = new Set(pagedResourceIds);
+    return new Set([...prev].filter((id) => !pageIds.has(id)));
+  });
   const clearSelection = () => setSelectedIds(new Set());
 
   // ── Open modals ────────────────────────────────────────
@@ -249,6 +291,30 @@ const Resources = () => {
     if (selectedIds.size === 0) { alert('Select at least one resource first.'); return; }
     setAssignLocation(''); setAssignNotes(''); setModalError('');
     setModalType('bulk_assign');
+  };
+
+  const openBulkDelete = () => {
+    if (selectedIds.size === 0) return;
+    setModalError('');
+    setModalType('bulk_delete');
+  };
+
+  const openBulkInspect = () => {
+    if (selectedIds.size === 0) return;
+    const today = new Date().toISOString().slice(0, 10);
+    setBulkInspectionDate(today);
+    setBulkApplyCondition('GOOD');
+    setBulkCommonRemarks('');
+    setBulkInspectionRows(selectedResources.map((r) => ({
+      id: r.id,
+      resourceCode: r.resource_id || '',
+      name: r.name,
+      current_condition: r.condition || 'GOOD',
+      new_condition: r.condition || 'GOOD',
+      remarks: '',
+    })));
+    setModalError('');
+    setModalType('bulk_inspect');
   };
 
   const openDrawer = async (r) => {
@@ -298,8 +364,11 @@ const Resources = () => {
     if (!categoryName.trim()) { setModalError('Category name is required.'); return; }
     setSaving(true); setModalError('');
     try {
-      await api.post('resource-categories/', { name: categoryName, description: categoryDescription, manager: categoryManager || null });
-      await loadAll(); setModalType(null);
+      const res = await api.post('resource-categories/', { name: categoryName, description: categoryDescription, manager: categoryManager || null });
+      await loadAll();
+      setCategory(res.data?.id || '');
+      setBulkCategory(res.data?.id || '');
+      setModalType(null);
     } catch (err) {
       setModalError(err.response?.data?.detail || JSON.stringify(err.response?.data) || 'Failed to create category.');
     } finally { setSaving(false); }
@@ -352,9 +421,65 @@ const Resources = () => {
       const res = await api.post('resources/bulk-assign-location/', {
         resource_ids: Array.from(selectedIds), location: assignLocation, notes: assignNotes,
       });
+      setSuccessMessage(`${res.data.updated_count} resource${res.data.updated_count !== 1 ? 's' : ''} assigned to ${res.data.location}.`);
       clearSelection(); await loadAll(); setModalType(null);
     } catch (err) {
       setModalError(err.response?.data?.error || 'Bulk assign failed.');
+    } finally { setSaving(false); }
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedIds.size === 0) { setModalError('Select at least one resource first.'); return; }
+    setSaving(true); setModalError('');
+    try {
+      const res = await api.post('resources/bulk-delete/', {
+        resource_ids: Array.from(selectedIds),
+      });
+      setSuccessMessage(res.data?.message || `${res.data?.deleted_count || selectedIds.size} assets deleted successfully.`);
+      clearSelection();
+      await loadAll();
+      setModalType(null);
+    } catch (err) {
+      const data = err.response?.data;
+      setModalError(data?.error || data?.detail || data?.message || 'Bulk delete failed.');
+    } finally { setSaving(false); }
+  };
+
+  const updateBulkInspectionRow = (id, field, value) => {
+    setBulkInspectionRows((rows) => rows.map((row) => row.id === id ? { ...row, [field]: value } : row));
+  };
+
+  const applyConditionToAll = () => {
+    setBulkInspectionRows((rows) => rows.map((row) => ({ ...row, new_condition: bulkApplyCondition })));
+  };
+
+  const applyRemarksToAll = () => {
+    setBulkInspectionRows((rows) => rows.map((row) => ({ ...row, remarks: bulkCommonRemarks })));
+  };
+
+  const handleBulkInspect = async () => {
+    if (!bulkInspectionDate) { setModalError('Inspection date is required.'); return; }
+    if (bulkInspectionRows.length === 0) { setModalError('Select at least one resource first.'); return; }
+    const invalidRow = bulkInspectionRows.find((row) => !CONDITION_OPTIONS.includes(row.new_condition));
+    if (invalidRow) { setModalError(`Invalid condition for ${invalidRow.resourceCode || invalidRow.name}.`); return; }
+
+    setSaving(true); setModalError('');
+    try {
+      const res = await api.post('resources/bulk-inspect/', {
+        inspection_date: bulkInspectionDate,
+        resources: bulkInspectionRows.map((row) => ({
+          resource_id: row.id,
+          current_condition: row.new_condition,
+          remarks: row.remarks,
+        })),
+      });
+      setSuccessMessage(res.data?.message || `${res.data?.inspected_count || bulkInspectionRows.length} resource inspections recorded successfully.`);
+      clearSelection();
+      await loadAll();
+      setModalType(null);
+    } catch (err) {
+      const data = err.response?.data;
+      setModalError(data?.error || data?.detail || data?.message || 'Bulk inspection failed.');
     } finally { setSaving(false); }
   };
 
@@ -436,6 +561,12 @@ const Resources = () => {
     try {
       const params = new URLSearchParams({ export_format: exportFormat });
       if (exportCategory) params.set('category', exportCategory);
+      if (reportFilterStatus) params.set('status', reportFilterStatus);
+      if (reportFilterCondition) params.set('condition', reportFilterCondition);
+      if (reportFilterPortable) params.set('is_portable', reportFilterPortable);
+      if (reportFilterLocation.trim()) params.set('location', reportFilterLocation.trim());
+      if (reportDateFrom) params.set('date_added_start', reportDateFrom);
+      if (reportDateTo) params.set('date_added_end', reportDateTo);
       const res = await api.download(`resources/export-report/?${params.toString()}`);
       const today = new Date().toISOString().split('T')[0];
       const ext = { PDF: 'pdf', EXCEL: 'xlsx', CSV: 'csv' }[exportFormat] || 'pdf';
@@ -451,7 +582,7 @@ const Resources = () => {
       if (statusCode === 403) {
         setModalError('You do not have permission to generate this report.');
       } else if (statusCode === 404) {
-        setModalError('The Resource Register export endpoint could not be found. Please refresh and try again.');
+        setModalError(data?.detail || 'No resources were found for the selected filters.');
       } else if (statusCode === 400) {
         setModalError(data?.error || data?.detail || 'No resources were found for the selected category.');
       } else {
@@ -459,6 +590,63 @@ const Resources = () => {
       }
     } finally {
       setSaving(false);
+    }
+  };
+
+  const reportFilters = () => ({
+    ...(exportCategory ? { category: exportCategory } : {}),
+    ...(reportFilterStatus ? { status: reportFilterStatus } : {}),
+    ...(reportFilterCondition ? { condition: reportFilterCondition } : {}),
+    ...(reportFilterPortable ? { is_portable: reportFilterPortable } : {}),
+    ...(reportFilterLocation.trim() ? { location: reportFilterLocation.trim() } : {}),
+    ...(reportDateFrom ? { date_added_start: reportDateFrom } : {}),
+    ...(reportDateTo ? { date_added_end: reportDateTo } : {}),
+  });
+
+  const submitReportRequest = async () => {
+    setSaving(true); setModalError('');
+    try {
+      await api.post('resource-report-requests/', {
+        report_type: 'RESOURCE_REGISTER',
+        report_format: exportFormat,
+        filters: reportFilters(),
+      });
+      setSuccessMessage('Resource report request submitted for review.');
+      await loadAll();
+      setModalType(null);
+    } catch (err) {
+      setModalError(err.response?.data?.detail || err.response?.data?.filters || 'Unable to submit report request.');
+    } finally { setSaving(false); }
+  };
+
+  const decideReportRequest = async (requestRow, decision, reasonOverride = '') => {
+    const reason = reasonOverride || reportDecisionReason;
+    if (decision === 'reject' && !reason.trim()) {
+      setModalError('A rejection reason is required.');
+      return;
+    }
+    setSaving(true); setModalError('');
+    try {
+      await api.post(`resource-report-requests/${requestRow.id}/${decision}/`, decision === 'reject' ? { reason: reason.trim() } : {});
+      setReportDecisionReason('');
+      setSelectedReportRequest(null);
+      await loadAll();
+    } catch (err) {
+      setModalError(err.response?.data?.detail || err.response?.data?.reason || 'Unable to update report request.');
+    } finally { setSaving(false); }
+  };
+
+  const downloadReportRequest = async (requestRow) => {
+    try {
+      const res = await api.download(`resource-report-requests/${requestRow.id}/download/`);
+      const url = URL.createObjectURL(res.blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = res.filename || `${requestRow.reference}.${requestRow.report_format === 'EXCEL' ? 'xlsx' : requestRow.report_format.toLowerCase()}`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setModalError(err.response?.data?.detail || 'Unable to download resource report.');
     }
   };
 
@@ -483,6 +671,8 @@ const Resources = () => {
   const pagedBookings = bookingFiltered.slice((bookingPage - 1) * PAGE_SIZE, bookingPage * PAGE_SIZE);
   const activeAllocations = visibleBookings.filter((a) => a.status === 'APPROVED');
   const underRepairCount = resources.filter((r) => ['UNDER_REPAIR', 'MAINTENANCE'].includes(r.status) || ['UNDER_REPAIR', 'DAMAGED'].includes(r.condition)).length;
+  const visibleReportRequests = canManage ? reportRequests : reportRequests.filter((r) => r.requested_by === user?.id);
+  const reportRequestsFiltered = visibleReportRequests.filter((r) => reportRequestStatusFilter === 'ALL' || r.status === reportRequestStatusFilter);
 
   useEffect(() => {
     setBookingPage(1);
@@ -554,8 +744,10 @@ const Resources = () => {
           background: 'rgba(59,130,246,0.1)', border: '1px solid rgba(59,130,246,0.25)',
           borderRadius: '10px', marginBottom: '1rem', flexWrap: 'wrap',
         }}>
-          <strong style={{ color: '#3b82f6', fontSize: '13px' }}>{selectedIds.size} selected</strong>
+          <strong style={{ color: '#3b82f6', fontSize: '13px' }}>{selectedIds.size} asset{selectedIds.size !== 1 ? 's' : ''} selected</strong>
           <button className="btn btn-secondary btn-sm" onClick={openBulkAssign}>📍 Assign Location</button>
+          {canManage && <button className="btn btn-secondary btn-sm" onClick={openBulkInspect}>Bulk Inspect ({selectedIds.size})</button>}
+          {canManage && <button className="btn btn-danger btn-sm" onClick={openBulkDelete}>Delete Selected ({selectedIds.size})</button>}
           <button className="btn btn-secondary btn-sm" style={{ fontSize: '12px' }} onClick={clearSelection}>✕ Clear</button>
         </div>
       )}
@@ -622,6 +814,7 @@ const Resources = () => {
 
       {activeTab === 'register' && (
         <>
+      {successMessage && <div className="alert alert-success" style={{ marginBottom: '1rem' }}>{successMessage}</div>}
       {/* ── Filters ── */}
       <div style={{ display: 'flex', gap: '0.6rem', marginBottom: '1rem', flexWrap: 'wrap', alignItems: 'center' }}>
         <input className="form-input" style={{ maxWidth: '220px', fontSize: '13px' }} placeholder="Search by name, ID, location..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
@@ -643,8 +836,8 @@ const Resources = () => {
           <option value="ALL">All Conditions</option>
           {CONDITION_OPTIONS.map((c) => <option key={c} value={c}>{CONDITION_BADGE[c]?.label || c}</option>)}
         </select>
-        {selectedIds.size === 0 && filtered.length > 0 && canManage && (
-          <button type="button" className="btn btn-secondary btn-sm" onClick={selectAll} style={{ fontSize: '12px' }}>Select All ({filtered.length})</button>
+        {selectedIds.size === 0 && pagedResources.length > 0 && canManage && (
+          <button type="button" className="btn btn-secondary btn-sm" onClick={selectPage} style={{ fontSize: '12px' }}>Select This Page ({pagedResources.length})</button>
         )}
         <span style={{ marginLeft: 'auto', fontSize: '12px', color: 'var(--text-secondary)' }}>
           Showing {filtered.length === 0 ? 0 : ((resourcePage - 1) * PAGE_SIZE) + 1}-{Math.min(resourcePage * PAGE_SIZE, filtered.length)} of {filtered.length} resources
@@ -661,7 +854,7 @@ const Resources = () => {
           <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '850px' }}>
             <thead>
               <tr style={{ background: 'rgba(30,58,138,0.7)', color: '#fff' }}>
-                {canManage && <th style={{ padding: '10px 12px', width: '36px' }}><input type="checkbox" checked={selectedIds.size === filtered.length && filtered.length > 0} onChange={(e) => e.target.checked ? selectAll() : clearSelection()} /></th>}
+                {canManage && <th style={{ padding: '10px 12px', width: '36px' }}><input type="checkbox" aria-label="Select this page" checked={allPageSelected} ref={(input) => { if (input) input.indeterminate = somePageSelected && !allPageSelected; }} onChange={(e) => e.target.checked ? selectPage() : clearPageSelection()} /></th>}
                 <th style={{ padding: '10px 12px', textAlign: 'left', fontSize: '12px', fontWeight: 600, letterSpacing: '0.05em' }}>RESOURCE ID</th>
                 <th style={{ padding: '10px 12px', textAlign: 'left', fontSize: '12px', fontWeight: 600 }}>NAME</th>
                 <th style={{ padding: '10px 12px', textAlign: 'left', fontSize: '12px', fontWeight: 600 }}>CATEGORY</th>
@@ -702,7 +895,7 @@ const Resources = () => {
                   <td style={{ padding: '9px 12px' }}>
                     <div style={{ display: 'flex', gap: '4px' }}>
                       <button type="button" className="btn btn-secondary btn-sm" style={{ padding: '3px 8px', fontSize: '12px', minHeight: 'unset' }} onClick={() => openDrawer(r)} title="History & Inspection">View</button>
-                      {r.status === 'AVAILABLE' && !['UNDER_REPAIR', 'DAMAGED'].includes(r.condition) && (
+                      {r.is_portable && r.status === 'AVAILABLE' && !['UNDER_REPAIR', 'DAMAGED'].includes(r.condition) && (
                         <button type="button" className="btn btn-secondary btn-sm" style={{ padding: '3px 8px', fontSize: '12px', minHeight: 'unset' }} onClick={() => openBook(r)} title="Book Resource">Book</button>
                       )}
                       {canManage && (
@@ -780,23 +973,55 @@ const Resources = () => {
           <div className="finance-panel-head" style={{ marginBottom: '0.75rem' }}>
             <div>
               <h3 style={{ margin: 0, fontSize: '1rem' }}>Resource Reports</h3>
-              <p className="page-subtitle">Generate printable and spreadsheet exports from the Resource Register.</p>
+              <p className="page-subtitle">{canManage ? 'Generate reports directly or review staff report requests.' : 'Request approved Resource Register exports from Resources & Assets administrators.'}</p>
             </div>
-            {canManage && (
-              <button type="button" className="btn btn-primary btn-sm" onClick={() => setModalType('export')}>
-                Export Register
-              </button>
-            )}
+            <button type="button" className="btn btn-primary btn-sm" onClick={() => setModalType('export')}>
+              {canManage ? 'Export Register' : 'Request Report'}
+            </button>
           </div>
-          {canManage ? (
-            <div className="hubtoll-mini-metrics">
-              <div className="hubtoll-mini-metric"><strong>{resources.length}</strong><span>Total resources available for reporting</span></div>
-              <div className="hubtoll-mini-metric"><strong>{resourceCategories.length}</strong><span>Categories available as report filters</span></div>
-              <div className="hubtoll-mini-metric"><strong>{underRepairCount}</strong><span>Repair or maintenance records to review</span></div>
-            </div>
-          ) : (
-            <div className="empty-state compact">Resource reporting is available to Resources & Assets administrators.</div>
-          )}
+          <div className="hubtoll-mini-metrics">
+            <div className="hubtoll-mini-metric"><strong>{resources.length}</strong><span>Total resources available for reporting</span></div>
+            <div className="hubtoll-mini-metric"><strong>{resourceCategories.length}</strong><span>Categories available as report filters</span></div>
+            <div className="hubtoll-mini-metric"><strong>{visibleReportRequests.filter((r) => r.status === 'PENDING').length}</strong><span>Pending report requests</span></div>
+          </div>
+          <div className="finance-filters" style={{ marginTop: '1rem' }}>
+            <select value={reportRequestStatusFilter} onChange={(e) => setReportRequestStatusFilter(e.target.value)}>
+              <option value="ALL">All request statuses</option>
+              <option value="PENDING">Pending</option>
+              <option value="COMPLETED">Completed</option>
+              <option value="REJECTED">Rejected</option>
+            </select>
+            <button type="button" className="btn-filter-clear" onClick={() => setReportRequestStatusFilter('ALL')}>Clear Filters</button>
+          </div>
+          {reportRequestsError && <div className="alert alert-danger">{reportRequestsError}</div>}
+          <div className="table-wrap">
+            <table className="finance-table">
+              <thead><tr><th>Reference</th>{canManage && <th>Requester</th>}<th>Format</th><th>Filters</th><th>Status</th><th>Decision</th><th>Report</th></tr></thead>
+              <tbody>
+                {reportRequestsFiltered.length === 0 ? (
+                  <tr><td colSpan={canManage ? 7 : 6} style={{ textAlign: 'center', padding: '1.5rem', color: 'var(--text-secondary)' }}>No resource report requests found.</td></tr>
+                ) : reportRequestsFiltered.map((req) => (
+                  <tr key={req.id}>
+                    <td>{req.reference}</td>
+                    {canManage && <td>{req.requested_by_username}</td>}
+                    <td>{req.report_format}</td>
+                    <td>{Object.keys(req.filters || {}).length ? Object.entries(req.filters).map(([k, v]) => `${k}: ${v}`).join(', ') : 'All Resources'}</td>
+                    <td><span className={`badge ${req.status === 'COMPLETED' ? 'badge-approved' : req.status === 'REJECTED' ? 'badge-rejected' : 'badge-pending'}`}>{req.status}</span></td>
+                    <td>{req.rejection_reason || req.response_notes || '-'}</td>
+                    <td>
+                      {req.status === 'COMPLETED' ? <button type="button" onClick={() => downloadReportRequest(req)}>Download</button> :
+                        canManage && req.status === 'PENDING' ? (
+                          <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap' }}>
+                            <button type="button" onClick={() => decideReportRequest(req, 'approve')}>Approve</button>
+                            <button type="button" onClick={() => { setSelectedReportRequest(req); setReportDecisionReason(''); setModalError(''); setModalType('reject_report_request'); }}>Reject</button>
+                          </div>
+                        ) : '-'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </section>
       )}
 
@@ -956,13 +1181,106 @@ const Resources = () => {
         </Modal>
       )}
 
+      {/* Bulk Delete */}
+      {modalType === 'bulk_delete' && (
+        <Modal
+          title="Delete Selected Assets"
+          onClose={() => setModalType(null)}
+          onSubmit={handleBulkDelete}
+          footer={<><button type="button" className="btn btn-secondary" onClick={() => setModalType(null)}>Cancel</button><button type="submit" className="btn btn-danger" disabled={saving}>{saving ? <span className="spinner" /> : `Delete ${selectedIds.size} Asset${selectedIds.size !== 1 ? 's' : ''}`}</button></>}
+        >
+          {modalError && <div className="alert alert-danger" style={{ marginBottom: '1rem' }}>{modalError}</div>}
+          <div style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.25)', borderRadius: '8px', padding: '12px 14px', marginBottom: '1rem' }}>
+            <div style={{ fontWeight: 700, color: '#ef4444', marginBottom: '4px' }}>You are about to permanently delete {selectedIds.size} asset{selectedIds.size !== 1 ? 's' : ''}.</div>
+            <div style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>This action cannot be undone. Resource-specific history and bookings will follow the existing database delete rules.</div>
+          </div>
+          <div style={{ fontWeight: 600, fontSize: '13px', marginBottom: '8px' }}>Preview</div>
+          <div style={{ display: 'grid', gap: '6px', maxHeight: '180px', overflowY: 'auto' }}>
+            {selectedPreview.map((r) => (
+              <div key={r.id} style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', padding: '8px 10px', border: '1px solid var(--border-color)', borderRadius: '8px', background: 'rgba(255,255,255,0.03)' }}>
+                <span style={{ fontSize: '13px', fontWeight: 600 }}>{r.resource_id || `#${r.id}`}</span>
+                <span style={{ fontSize: '13px', color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.name}</span>
+              </div>
+            ))}
+            {selectedResources.length > selectedPreview.length && (
+              <div style={{ fontSize: '12px', color: 'var(--text-secondary)', padding: '4px 2px' }}>And {selectedResources.length - selectedPreview.length} more selected asset{selectedResources.length - selectedPreview.length !== 1 ? 's' : ''}.</div>
+            )}
+          </div>
+        </Modal>
+      )}
+
+      {/* Bulk Inspection */}
+      {modalType === 'bulk_inspect' && (
+        <Modal
+          title="Bulk Resource Inspection"
+          onClose={() => setModalType(null)}
+          onSubmit={handleBulkInspect}
+          footer={<><button type="button" className="btn btn-secondary" onClick={() => setModalType(null)}>Cancel</button><button type="submit" className="btn btn-primary" disabled={saving}>{saving ? <span className="spinner" /> : `Record ${bulkInspectionRows.length} Inspection${bulkInspectionRows.length !== 1 ? 's' : ''}`}</button></>}
+        >
+          {modalError && <div className="alert alert-danger" style={{ marginBottom: '1rem' }}>{modalError}</div>}
+          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(160px, 0.7fr) minmax(220px, 1fr)', gap: '0 1rem', marginBottom: '1rem' }}>
+            <div className="form-group">
+              <label className="form-label">Inspection Date *</label>
+              <input className="form-input" type="date" value={bulkInspectionDate} onChange={(e) => setBulkInspectionDate(e.target.value)} required />
+            </div>
+            <div className="form-group">
+              <label className="form-label">Apply Condition to All</label>
+              <div style={{ display: 'flex', gap: '0.5rem' }}>
+                <select className="form-select" value={bulkApplyCondition} onChange={(e) => setBulkApplyCondition(e.target.value)}>
+                  {CONDITION_OPTIONS.map((c) => <option key={c} value={c}>{CONDITION_BADGE[c]?.label || c}</option>)}
+                </select>
+                <button type="button" className="btn btn-secondary btn-sm" onClick={applyConditionToAll}>Apply</button>
+              </div>
+            </div>
+            <div className="form-group" style={{ gridColumn: 'span 2' }}>
+              <label className="form-label">Common Remarks</label>
+              <div style={{ display: 'flex', gap: '0.5rem' }}>
+                <input className="form-input" value={bulkCommonRemarks} onChange={(e) => setBulkCommonRemarks(e.target.value)} placeholder="Annual departmental asset audit - September 2026" />
+                <button type="button" className="btn btn-secondary btn-sm" onClick={applyRemarksToAll} disabled={!bulkCommonRemarks.trim()}>Apply</button>
+              </div>
+            </div>
+          </div>
+          <div style={{ overflowX: 'auto', border: '1px solid var(--border-color)', borderRadius: '8px' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '760px' }}>
+              <thead>
+                <tr style={{ background: 'rgba(30,58,138,0.7)', color: '#fff' }}>
+                  <th style={{ padding: '9px 10px', textAlign: 'left', fontSize: '12px' }}>RESOURCE ID</th>
+                  <th style={{ padding: '9px 10px', textAlign: 'left', fontSize: '12px' }}>RESOURCE NAME</th>
+                  <th style={{ padding: '9px 10px', textAlign: 'left', fontSize: '12px' }}>CURRENT</th>
+                  <th style={{ padding: '9px 10px', textAlign: 'left', fontSize: '12px', minWidth: '150px' }}>NEW CONDITION</th>
+                  <th style={{ padding: '9px 10px', textAlign: 'left', fontSize: '12px', minWidth: '220px' }}>REMARKS</th>
+                </tr>
+              </thead>
+              <tbody>
+                {bulkInspectionRows.map((row, idx) => (
+                  <tr key={row.id} style={{ background: idx % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.02)', borderBottom: '1px solid var(--border-color)' }}>
+                    <td style={{ padding: '9px 10px' }}><code style={{ fontSize: '12px', background: 'rgba(59,130,246,0.1)', color: '#3b82f6', padding: '2px 6px', borderRadius: '4px' }}>{row.resourceCode || `#${row.id}`}</code></td>
+                    <td style={{ padding: '9px 10px', fontSize: '13px', fontWeight: 500 }}>{row.name}</td>
+                    <td style={{ padding: '9px 10px' }}><ConditionBadge condition={row.current_condition} /></td>
+                    <td style={{ padding: '9px 10px' }}>
+                      <select className="form-select" value={row.new_condition} onChange={(e) => updateBulkInspectionRow(row.id, 'new_condition', e.target.value)}>
+                        {CONDITION_OPTIONS.map((c) => <option key={c} value={c}>{CONDITION_BADGE[c]?.label || c}</option>)}
+                      </select>
+                    </td>
+                    <td style={{ padding: '9px 10px' }}>
+                      <input className="form-input" value={row.remarks} onChange={(e) => updateBulkInspectionRow(row.id, 'remarks', e.target.value)} placeholder="Inspection remarks..." />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '10px' }}>Each row creates its own inspection history record and updates that resource condition.</div>
+        </Modal>
+      )}
+
       {/* Export */}
       {modalType === 'export' && (
         <Modal
-          title="Export Resource Register"
+          title={canManage ? 'Export Resource Register' : 'Request Resource Report'}
           onClose={() => setModalType(null)}
-          onSubmit={handleExport}
-          footer={<><button type="button" className="btn btn-secondary" onClick={() => setModalType(null)}>Cancel</button><button type="submit" className="btn btn-primary">↓ Download {exportFormat}</button></>}
+          onSubmit={canManage ? handleExport : submitReportRequest}
+          footer={<><button type="button" className="btn btn-secondary" onClick={() => setModalType(null)}>Cancel</button><button type="submit" className="btn btn-primary" disabled={saving}>{saving ? <span className="spinner" /> : (canManage ? `Download ${exportFormat}` : 'Submit Report Request')}</button></>}
         >
           {modalError && <div className="alert alert-danger" style={{ marginBottom: '1rem' }}>{modalError}</div>}
           <div className="form-group"><label className="form-label">Format</label>
@@ -978,9 +1296,45 @@ const Resources = () => {
               {resourceCategories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
           </div>
-          <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-            Report includes: Resource ID, Name, Category, Status, Condition, Location, Portable flag, Date Added.
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 1rem' }}>
+            <div className="form-group"><label className="form-label">Status</label>
+              <select className="form-select" value={reportFilterStatus} onChange={(e) => setReportFilterStatus(e.target.value)}>
+                <option value="">All Statuses</option>
+                {STATUS_OPTIONS.map((s) => <option key={s} value={s}>{STATUS_BADGE[s]?.label || s}</option>)}
+              </select>
+            </div>
+            <div className="form-group"><label className="form-label">Condition</label>
+              <select className="form-select" value={reportFilterCondition} onChange={(e) => setReportFilterCondition(e.target.value)}>
+                <option value="">All Conditions</option>
+                {CONDITION_OPTIONS.map((c) => <option key={c} value={c}>{CONDITION_BADGE[c]?.label || c}</option>)}
+              </select>
+            </div>
+            <div className="form-group"><label className="form-label">Portability</label>
+              <select className="form-select" value={reportFilterPortable} onChange={(e) => setReportFilterPortable(e.target.value)}>
+                <option value="">All Resources</option>
+                <option value="true">Portable</option>
+                <option value="false">Non-portable</option>
+              </select>
+            </div>
+            <div className="form-group"><label className="form-label">Location Contains</label><input className="form-input" value={reportFilterLocation} onChange={(e) => setReportFilterLocation(e.target.value)} /></div>
+            <div className="form-group"><label className="form-label">Date Added From</label><input className="form-input" type="date" value={reportDateFrom} onChange={(e) => setReportDateFrom(e.target.value)} /></div>
+            <div className="form-group"><label className="form-label">Date Added To</label><input className="form-input" type="date" value={reportDateTo} onChange={(e) => setReportDateTo(e.target.value)} /></div>
           </div>
+          <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+            Report includes: Resource ID, Name, Category, Status, Condition, Location, Portable flag, Date Added. {canManage ? '' : 'Your request will be reviewed before the file becomes available.'}
+          </div>
+        </Modal>
+      )}
+
+      {modalType === 'reject_report_request' && selectedReportRequest && (
+        <Modal
+          title={`Reject Resource Report ${selectedReportRequest.reference}`}
+          onClose={() => setModalType(null)}
+          onSubmit={() => decideReportRequest(selectedReportRequest, 'reject')}
+          footer={<><button type="button" className="btn btn-secondary" onClick={() => setModalType(null)}>Cancel</button><button type="submit" className="btn btn-danger" disabled={saving || !reportDecisionReason.trim()}>{saving ? <span className="spinner" /> : 'Reject Request'}</button></>}
+        >
+          {modalError && <div className="alert alert-danger" style={{ marginBottom: '1rem' }}>{modalError}</div>}
+          <div className="form-group"><label className="form-label">Rejection Reason *</label><textarea className="form-textarea" rows="3" value={reportDecisionReason} onChange={(e) => setReportDecisionReason(e.target.value)} /></div>
         </Modal>
       )}
 
@@ -1051,6 +1405,10 @@ const Resources = () => {
             <div><div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Status</div><span className={STATUS_BADGE[drawerResource.status]?.cls || 'badge'}>{STATUS_BADGE[drawerResource.status]?.label || drawerResource.status}</span></div>
             <div><div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Location</div><span style={{ fontWeight: 600, fontSize: '13px' }}>{drawerResource.location || '—'}</span></div>
             <div><div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Portable</div><span style={{ fontWeight: 600, fontSize: '13px' }}>{drawerResource.is_portable ? 'Yes' : 'No'}</span></div>
+          </div>
+          <div style={{ marginBottom: '16px', padding: '12px', border: '1px solid var(--border-color)', borderRadius: '8px', background: 'rgba(255,255,255,0.02)' }}>
+            <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', textTransform: 'uppercase', fontWeight: 700 }}>Description</div>
+            <div style={{ fontSize: '13px', color: 'var(--text-primary)', lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>{drawerResource.description || 'No description recorded.'}</div>
           </div>
 
           {/* Tabs */}

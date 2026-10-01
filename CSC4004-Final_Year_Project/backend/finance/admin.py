@@ -1,5 +1,9 @@
 from django.contrib import admin
-from .models import Budget, Expense, Approval, BudgetTransaction, FinancialSummaryRequest, FinanceNotification, FinanceAuditLog
+from .models import (
+    Budget, Expense, Approval, BudgetTransaction, FinancialSummaryRequest,
+    FinanceNotification, FinanceAuditLog, DepartmentalIncome,
+    DepartmentalIncomeAllocation,
+)
 
 @admin.register(Budget)
 class BudgetAdmin(admin.ModelAdmin):
@@ -17,6 +21,18 @@ class ApprovalAdmin(admin.ModelAdmin): list_display=('expense','approved_by','da
 class BudgetTransactionAdmin(admin.ModelAdmin):
     list_display=('reference','action_type','amount','balance_before','balance_after','performed_by','timestamp')
     list_filter=('action_type','budget'); search_fields=('reference','notes','expense__reference')
+
+@admin.register(DepartmentalIncome)
+class DepartmentalIncomeAdmin(admin.ModelAdmin):
+    list_display=('reference','source_name','amount','unallocated_amount','allocation_status','date_received','recorded_by')
+    list_filter=('allocation_status','date_received')
+    search_fields=('reference','source_name','description','external_reference')
+
+@admin.register(DepartmentalIncomeAllocation)
+class DepartmentalIncomeAllocationAdmin(admin.ModelAdmin):
+    list_display=('reference','income','budget','amount','allocated_by','allocated_at')
+    list_filter=('budget','allocated_at')
+    search_fields=('reference','income__reference','budget__department','notes')
 
 @admin.register(FinancialSummaryRequest)
 class FinancialSummaryRequestAdmin(admin.ModelAdmin):

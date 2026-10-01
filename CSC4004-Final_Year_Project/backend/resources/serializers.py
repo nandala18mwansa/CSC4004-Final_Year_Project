@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Resource, ResourceCategory, Allocation
+from .models import Resource, ResourceCategory, Allocation, ResourceReportRequest
 
 
 class ResourceCategorySerializer(serializers.ModelSerializer):
@@ -9,6 +9,17 @@ class ResourceCategorySerializer(serializers.ModelSerializer):
     class Meta:
         model = ResourceCategory
         fields = '__all__'
+
+    def validate_name(self, value):
+        name = value.strip()
+        if not name:
+            raise serializers.ValidationError('Category name is required.')
+        qs = ResourceCategory.objects.filter(name__iexact=name)
+        if self.instance:
+            qs = qs.exclude(pk=self.instance.pk)
+        if qs.exists():
+            raise serializers.ValidationError(f'A resource category named "{name}" already exists.')
+        return name
 
 class ResourceSerializer(serializers.ModelSerializer):
     category_name = serializers.CharField(source='category.name', read_only=True)
@@ -60,6 +71,8 @@ class AllocationSerializer(serializers.ModelSerializer):
         unbookable_conditions = {'UNDER_REPAIR', 'DAMAGED'}
         if resource and resource.status not in bookable_statuses:
             raise serializers.ValidationError({'resource': 'This resource is not available for booking.'})
+        if resource and not resource.is_portable:
+            raise serializers.ValidationError({'resource': 'Only portable resources can be booked through this workflow.'})
         if resource and resource.condition in unbookable_conditions:
             raise serializers.ValidationError({'resource': 'This resource condition does not allow booking.'})
 
@@ -79,3 +92,45 @@ class AllocationSerializer(serializers.ModelSerializer):
                 })
 
         return attrs
+
+
+class ResourceReportRequestSerializer(serializers.ModelSerializer):
+    requested_by_username = serializers.CharField(source='requested_by.username', read_only=True)
+    processed_by_username = serializers.CharField(source='processed_by.username', read_only=True)
+    report_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ResourceReportRequest
+        fields = '__all__'
+        read_only_fields = (
+            'id', 'reference', 'requested_by', 'status', 'rejection_reason',
+            'response_notes', 'generated_report', 'requested_at',
+            'processed_at', 'processed_by',
+        )
+
+    def get_report_url(self, obj):
+        if not obj.generated_report:
+            return None
+        request = self.context.get('request')
+        url = obj.generated_report.url
+        return request.build_absolute_uri(url) if request else url
+
+    def validate_report_format(self, value):
+        value = str(value or 'PDF').upper()
+        if value == 'XLSX':
+            value = 'EXCEL'
+        if value not in {'PDF', 'EXCEL', 'CSV'}:
+            raise serializers.ValidationError('Report format must be PDF, Excel, or CSV.')
+        return value
+
+    def validate_filters(self, value):
+        if value in (None, ''):
+            return {}
+        if not isinstance(value, dict):
+            raise serializers.ValidationError('Report filters must be an object.')
+        allowed = {
+            'category', 'status', 'condition', 'is_portable', 'location',
+            'date_added_start', 'date_added_end', 'inspection_start',
+            'inspection_end',
+        }
+        return {k: v for k, v in value.items() if k in allowed and v not in ('', None)}

@@ -23,6 +23,18 @@ const formatDateLocal = (isoStr) => {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 };
 
+const pageRows = (data) => (Array.isArray(data) ? data : (data?.results || []));
+const pageCount = (data) => (Array.isArray(data) ? data.length : (data?.count || 0));
+const emptyDashboard = {
+  total: 0,
+  upcoming: 0,
+  completed: 0,
+  physical: 0,
+  online: 0,
+  hybrid: 0,
+};
+const ACTIVITY_PAGE_SIZE = 8;
+
 const STATUS_BADGES = {
   PENDING_APPROVAL: {
     label: 'PENDING APPROVAL',
@@ -356,6 +368,8 @@ const Activities = () => {
   const { user } = useContext(AuthContext);
 
   const [activities, setActivities] = useState([]);
+  const [dashboard, setDashboard] = useState(emptyDashboard);
+  const [activityTotal, setActivityTotal] = useState(0);
   const [activityTypes, setActivityTypes] = useState([]);
   const [users, setUsers] = useState([]);
   const [recipientGroups, setRecipientGroups] = useState([]);
@@ -374,6 +388,9 @@ const Activities = () => {
   const [description, setDescription] = useState('');
   const [activityTypeId, setActivityTypeId] = useState('');
   const [location, setLocation] = useState('');
+  const [meetingMode, setMeetingMode] = useState('PHYSICAL');
+  const [meetingPlatform, setMeetingPlatform] = useState('');
+  const [meetingLink, setMeetingLink] = useState('');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [participantIds, setParticipantIds] = useState([]);
@@ -407,6 +424,14 @@ const Activities = () => {
 
   const [saving, setSaving] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [viewMode, setViewMode] = useState('overview');
+  const [activityPage, setActivityPage] = useState(1);
+  const [statusFilter, setStatusFilter] = useState('');
+  const [meetingModeFilter, setMeetingModeFilter] = useState('');
+  const [activityTypeFilter, setActivityTypeFilter] = useState('');
+  const [dateFromFilter, setDateFromFilter] = useState('');
+  const [dateToFilter, setDateToFilter] = useState('');
+  const [activityOrdering, setActivityOrdering] = useState('start_date');
 
   const canManage = Boolean(user?.is_superuser || user?.has_activity_privilege);
 
@@ -414,13 +439,32 @@ const Activities = () => {
 
   const loadData = async () => {
     try {
-      const [actRes, typesRes, userRes, groupRes] = await Promise.all([
-        api.get('activities/'),
+      const activityParams = {
+        page_size: ACTIVITY_PAGE_SIZE,
+        ordering: viewMode === 'overview' ? 'start_date' : activityOrdering,
+      };
+      if (viewMode === 'overview') {
+        activityParams.upcoming = 'true';
+      } else {
+        activityParams.page = activityPage;
+        if (searchQuery.trim()) activityParams.search = searchQuery.trim();
+        if (statusFilter) activityParams.status = statusFilter;
+        if (meetingModeFilter) activityParams.meeting_mode = meetingModeFilter;
+        if (activityTypeFilter) activityParams.activity_type = activityTypeFilter;
+        if (dateFromFilter) activityParams.date_from = dateFromFilter;
+        if (dateToFilter) activityParams.date_to = dateToFilter;
+      }
+
+      const [dashRes, actRes, typesRes, userRes, groupRes] = await Promise.all([
+        api.get('activities/dashboard/'),
+        api.get('activities/', { params: activityParams }),
         api.get('activity-types/?all=true'),
         api.get('users/'),
         api.get('recipient-groups/?all=true').catch(() => ({ data: [] })),
       ]);
-      setActivities(actRes.data);
+      setDashboard({ ...emptyDashboard, ...(dashRes.data || {}) });
+      setActivities(pageRows(actRes.data));
+      setActivityTotal(pageCount(actRes.data));
       setActivityTypes(typesRes.data);
       setUsers(userRes.data);
       setRecipientGroups(groupRes.data);
@@ -435,7 +479,7 @@ const Activities = () => {
     loadData();
     const id = setInterval(loadData, 10000);
     return () => clearInterval(id);
-  }, []);
+  }, [viewMode, activityPage, searchQuery, statusFilter, meetingModeFilter, activityTypeFilter, dateFromFilter, dateToFilter, activityOrdering]);
 
   // Set default activity type once loaded
   useEffect(() => {
@@ -487,6 +531,9 @@ const Activities = () => {
     const firstActive = activityTypes.find((t) => t.is_active);
     setActivityTypeId(firstActive ? firstActive.id : '');
     setLocation('');
+    setMeetingMode('PHYSICAL');
+    setMeetingPlatform('');
+    setMeetingLink('');
     setStartDate('');
     setEndDate('');
     setParticipantIds([]);
@@ -510,6 +557,9 @@ const Activities = () => {
     setDescription(act.description || '');
     setActivityTypeId(act.activity_type || '');
     setLocation(act.location || '');
+    setMeetingMode(act.meeting_mode || 'PHYSICAL');
+    setMeetingPlatform(act.meeting_platform || '');
+    setMeetingLink(act.meeting_link || '');
     setStartDate(formatDateLocal(act.start_date));
     setEndDate(formatDateLocal(act.end_date));
     setParticipantIds(act.participants || []);
@@ -566,6 +616,9 @@ const Activities = () => {
     description: description.trim(),
     activity_type: activityTypeId || null,
     location: location.trim(),
+    meeting_mode: meetingMode,
+    meeting_platform: meetingMode === 'PHYSICAL' ? '' : meetingPlatform,
+    meeting_link: meetingMode === 'PHYSICAL' ? '' : meetingLink.trim(),
     start_date: startDate,
     end_date: endDate,
     participants: participantIds,
@@ -582,6 +635,15 @@ const Activities = () => {
     if (!startDate) return 'Start date and time is required.';
     if (!endDate) return 'End date and time is required.';
     if (new Date(endDate) <= new Date(startDate)) return 'End date and time must be after start date.';
+    if (meetingMode !== 'PHYSICAL') {
+      if (!meetingPlatform) return 'Meeting platform is required for online or hybrid activities.';
+      try {
+        const url = new URL(meetingLink);
+        if (!['http:', 'https:'].includes(url.protocol)) return 'Meeting link must be a valid http or https URL.';
+      } catch {
+        return 'Meeting link must be a valid URL.';
+      }
+    }
     return null;
   };
 
@@ -780,19 +842,22 @@ const Activities = () => {
   const isOrganizer = (act) => act.organizer === user?.id || act.organizer_username === user?.username;
   const canActOn = (act) => canManage || (isOrganizer(act) && act.approval_status === 'PENDING');
 
-  const filteredActivities = activities.filter((a) => {
-    if (!searchQuery) return true;
-    const q = searchQuery.toLowerCase();
-    return (
-      a.title.toLowerCase().includes(q) ||
-      (a.description || '').toLowerCase().includes(q) ||
-      (a.location || '').toLowerCase().includes(q) ||
-      (a.activity_type_name || '').toLowerCase().includes(q) ||
-      (a.organizer_username || '').toLowerCase().includes(q)
-    );
-  });
+  const filteredActivities = activities;
 
   const activeTypesList = activityTypes.filter((t) => t.is_active);
+  const activityTotalPages = Math.max(1, Math.ceil(activityTotal / ACTIVITY_PAGE_SIZE));
+  const hasListFilters = Boolean(searchQuery || statusFilter || meetingModeFilter || activityTypeFilter || dateFromFilter || dateToFilter);
+
+  const clearActivityFilters = () => {
+    setSearchQuery('');
+    setStatusFilter('');
+    setMeetingModeFilter('');
+    setActivityTypeFilter('');
+    setDateFromFilter('');
+    setDateToFilter('');
+    setActivityOrdering('start_date');
+    setActivityPage(1);
+  };
 
   // ── Form Modal Body ────────────────────────────────────────────────
 
@@ -858,6 +923,41 @@ const Activities = () => {
             placeholder="e.g. Board Room, Lab 3, Auditorium"
           />
         </div>
+
+        <div className="form-group">
+          <label className="form-label" style={{ fontWeight: 600 }}>Meeting Mode</label>
+          <select className="form-select" value={meetingMode} onChange={(e) => setMeetingMode(e.target.value)}>
+            <option value="PHYSICAL">Physical</option>
+            <option value="ONLINE">Online</option>
+            <option value="HYBRID">Hybrid</option>
+          </select>
+        </div>
+
+        {meetingMode !== 'PHYSICAL' && (
+          <>
+            <div className="form-group">
+              <label className="form-label" style={{ fontWeight: 600 }}>Meeting Platform *</label>
+              <select className="form-select" value={meetingPlatform} onChange={(e) => setMeetingPlatform(e.target.value)} required>
+                <option value="">Select platform</option>
+                <option value="GOOGLE_MEET">Google Meet</option>
+                <option value="ZOOM">Zoom</option>
+                <option value="MICROSOFT_TEAMS">Microsoft Teams</option>
+                <option value="OTHER">Other / Custom</option>
+              </select>
+            </div>
+            <div className="form-group" style={{ gridColumn: 'span 2' }}>
+              <label className="form-label" style={{ fontWeight: 600 }}>Meeting Link *</label>
+              <input
+                className="form-input"
+                type="url"
+                value={meetingLink}
+                onChange={(e) => setMeetingLink(e.target.value)}
+                placeholder="https://..."
+                required
+              />
+            </div>
+          </>
+        )}
 
         {/* Start Date & Time */}
         <div className="form-group">
@@ -1062,7 +1162,7 @@ const Activities = () => {
                 fontWeight: 700,
               }}
             >
-              {filteredActivities.length} total
+              {viewMode === 'overview' ? dashboard.total : activityTotal} total
             </span>
           </div>
           <p style={{ color: 'var(--text-secondary)', fontSize: '13px', marginTop: '4px', marginBottom: 0 }}>
@@ -1071,13 +1171,22 @@ const Activities = () => {
         </div>
 
         <div style={{ display: 'flex', gap: '0.6rem', alignItems: 'center', flexWrap: 'wrap' }}>
-          <input
-            className="form-input"
-            style={{ width: '240px', fontSize: '13px', padding: '7px 12px' }}
-            placeholder="Search activities..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-          />
+          <div style={{ display: 'inline-flex', gap: '4px', padding: '4px', borderRadius: '8px', border: '1px solid var(--border-color, #e2e8f0)', background: 'var(--bg-card, #ffffff)' }}>
+            <button
+              type="button"
+              className={viewMode === 'overview' ? 'btn btn-primary btn-sm' : 'btn btn-secondary btn-sm'}
+              onClick={() => { setViewMode('overview'); setActivityPage(1); }}
+            >
+              Overview
+            </button>
+            <button
+              type="button"
+              className={viewMode === 'list' ? 'btn btn-primary btn-sm' : 'btn btn-secondary btn-sm'}
+              onClick={() => { setViewMode('list'); setActivityPage(1); }}
+            >
+              All Activities
+            </button>
+          </div>
 
           {canManage && (
             <>
@@ -1120,6 +1229,117 @@ const Activities = () => {
       {!loading && error && <div className="alert alert-danger" style={{ marginBottom: '1.5rem' }}>{error}</div>}
       {!loading && successMsg && <div className="hubtoll-alert-banner hubtoll-alert-success">{successMsg}</div>}
 
+      {!loading && (
+        <>
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
+              gap: '0.8rem',
+              marginBottom: '1rem',
+            }}
+          >
+            {[
+              ['Total', dashboard.total],
+              ['Upcoming', dashboard.upcoming],
+              ['Completed', dashboard.completed],
+              ['Physical', dashboard.physical],
+              ['Online', dashboard.online],
+              ['Hybrid', dashboard.hybrid],
+            ].map(([label, value]) => (
+              <div
+                key={label}
+                style={{
+                  background: 'var(--bg-card, #ffffff)',
+                  border: '1px solid var(--border-color, #e2e8f0)',
+                  borderRadius: '8px',
+                  padding: '0.9rem 1rem',
+                  boxShadow: '0 1px 4px rgba(15, 23, 42, 0.04)',
+                }}
+              >
+                <div style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                  {label}
+                </div>
+                <div style={{ fontSize: '1.45rem', color: 'var(--hub-navy, #151d54)', fontWeight: 800, marginTop: '3px' }}>
+                  {value}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {viewMode === 'list' ? (
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
+                gap: '0.65rem',
+                alignItems: 'center',
+                marginBottom: '1.25rem',
+                background: 'var(--bg-card, #ffffff)',
+                border: '1px solid var(--border-color, #e2e8f0)',
+                borderRadius: '8px',
+                padding: '0.85rem',
+              }}
+            >
+              <input
+                className="form-input"
+                style={{ fontSize: '13px', padding: '7px 12px' }}
+                placeholder="Search activities..."
+                value={searchQuery}
+                onChange={(e) => { setSearchQuery(e.target.value); setActivityPage(1); }}
+              />
+              <select className="form-select" value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value); setActivityPage(1); }}>
+                <option value="">All statuses</option>
+                {Object.keys(STATUS_BADGES).map((status) => (
+                  <option key={status} value={status}>{STATUS_BADGES[status].label}</option>
+                ))}
+              </select>
+              <select className="form-select" value={meetingModeFilter} onChange={(e) => { setMeetingModeFilter(e.target.value); setActivityPage(1); }}>
+                <option value="">All modes</option>
+                <option value="PHYSICAL">Physical</option>
+                <option value="ONLINE">Online</option>
+                <option value="HYBRID">Hybrid</option>
+              </select>
+              <select className="form-select" value={activityTypeFilter} onChange={(e) => { setActivityTypeFilter(e.target.value); setActivityPage(1); }}>
+                <option value="">All types</option>
+                {activityTypes.map((type) => (
+                  <option key={type.id} value={type.id}>{type.name}</option>
+                ))}
+              </select>
+              <input className="form-input" type="date" value={dateFromFilter} onChange={(e) => { setDateFromFilter(e.target.value); setActivityPage(1); }} title="From date" />
+              <input className="form-input" type="date" value={dateToFilter} onChange={(e) => { setDateToFilter(e.target.value); setActivityPage(1); }} title="To date" />
+              <select className="form-select" value={activityOrdering} onChange={(e) => { setActivityOrdering(e.target.value); setActivityPage(1); }}>
+                <option value="start_date">Soonest first</option>
+                <option value="-start_date">Latest first</option>
+                <option value="title">Title A-Z</option>
+                <option value="-title">Title Z-A</option>
+                <option value="-created_at">Recently created</option>
+              </select>
+              <button type="button" className="btn-filter-clear" onClick={clearActivityFilters}>Clear Filters</button>
+            </div>
+          ) : (
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                gap: '0.75rem',
+                flexWrap: 'wrap',
+                marginBottom: '1.25rem',
+              }}
+            >
+              <div>
+                <h2 style={{ margin: 0, fontSize: '1.05rem', color: 'var(--hub-navy, #151d54)' }}>Upcoming Activities</h2>
+                <p style={{ margin: '4px 0 0', color: 'var(--text-secondary)', fontSize: '13px' }}>Showing the next scheduled activities instead of the full historical list.</p>
+              </div>
+              <button type="button" className="btn btn-secondary" onClick={() => { setViewMode('list'); setActivityPage(1); }}>
+                View All Activities
+              </button>
+            </div>
+          )}
+        </>
+      )}
+
       {/* ── Full-Width Scheduled Activity Cards ──────────────────────── */}
       {!loading && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
@@ -1135,16 +1355,24 @@ const Activities = () => {
             >
               <div style={{ fontSize: '3rem', marginBottom: '0.75rem', opacity: 0.35 }}>📅</div>
               <h3 style={{ margin: '0 0 0.5rem', color: 'var(--hub-navy, #151d54)', fontWeight: 700 }}>
-                No scheduled activities found
+                {viewMode === 'overview' ? 'No upcoming activities found' : 'No scheduled activities found'}
               </h3>
               <p style={{ color: 'var(--text-secondary)', fontSize: '13px', maxWidth: '420px', margin: '0 auto 1.25rem' }}>
-                {searchQuery
-                  ? 'No activities match your current search query. Try clearing the search filter.'
-                  : 'Get started by scheduling your first department meeting, training workshop, or seminar.'}
+                {viewMode === 'overview'
+                  ? 'There are no upcoming physical, online, or hybrid activities on the calendar right now.'
+                  : hasListFilters
+                    ? 'No activities match the selected filters. Try changing the status, mode, type, date range, or search text.'
+                    : 'Get started by scheduling your first department meeting, training workshop, or seminar.'}
               </p>
-              <button className="btn btn-primary" onClick={openCreateModal}>
-                + Schedule Activity
-              </button>
+              {viewMode === 'list' && hasListFilters ? (
+                <button type="button" className="btn-filter-clear" onClick={clearActivityFilters}>
+                  Clear Filters
+                </button>
+              ) : (
+                <button className="btn btn-primary" onClick={openCreateModal}>
+                  + Schedule Activity
+                </button>
+              )}
             </div>
           ) : (
             filteredActivities.map((activity) => {
@@ -1227,6 +1455,21 @@ const Activities = () => {
                               <circle cx="12" cy="10" r="3" />
                             </svg>
                             {activity.location}
+                          </span>
+                        )}
+                        {activity.meeting_mode && activity.meeting_mode !== 'PHYSICAL' && (
+                          <span
+                            style={{
+                              background: 'rgba(16, 185, 129, 0.1)',
+                              color: '#047857',
+                              border: '1px solid rgba(16, 185, 129, 0.25)',
+                              padding: '2px 9px',
+                              borderRadius: '12px',
+                              fontSize: '11px',
+                              fontWeight: 600,
+                            }}
+                          >
+                            {activity.meeting_mode === 'HYBRID' ? 'Hybrid meeting' : 'Online meeting'}
                           </span>
                         )}
                       </div>
@@ -1345,6 +1588,15 @@ const Activities = () => {
                     </div>
                   )}
 
+                  {activity.meeting_link && (
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.75rem', flexWrap: 'wrap', padding: '9px 12px', border: '1px solid rgba(16,185,129,0.25)', borderRadius: '8px', background: 'rgba(16,185,129,0.08)' }}>
+                      <div style={{ fontSize: '13px', color: 'var(--text-primary)', fontWeight: 600 }}>
+                        {activity.meeting_platform ? activity.meeting_platform.replace(/_/g, ' ') : 'Online'} meeting available
+                      </div>
+                      <a href={activity.meeting_link} target="_blank" rel="noreferrer" className="btn btn-secondary btn-sm">Join Meeting</a>
+                    </div>
+                  )}
+
                   {/* ── Participant Breakdown Bar ── */}
                   <div
                     style={{
@@ -1458,6 +1710,43 @@ const Activities = () => {
               );
             })
           )}
+          {viewMode === 'list' && filteredActivities.length > 0 && (
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                gap: '0.75rem',
+                flexWrap: 'wrap',
+                background: 'var(--bg-card, #ffffff)',
+                border: '1px solid var(--border-color, #e2e8f0)',
+                borderRadius: '8px',
+                padding: '0.85rem 1rem',
+              }}
+            >
+              <span style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>
+                Page {activityPage} of {activityTotalPages} · {activityTotal} matching activit{activityTotal === 1 ? 'y' : 'ies'}
+              </span>
+              <div style={{ display: 'flex', gap: '0.5rem' }}>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  disabled={activityPage <= 1}
+                  onClick={() => setActivityPage((prev) => Math.max(1, prev - 1))}
+                >
+                  Previous
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  disabled={activityPage >= activityTotalPages}
+                  onClick={() => setActivityPage((prev) => Math.min(activityTotalPages, prev + 1))}
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -1474,7 +1763,7 @@ const Activities = () => {
                 Cancel
               </button>
               <button type="submit" className="btn btn-primary" disabled={saving}>
-                {saving ? <span className="spinner" /> : 'Submit for Approval'}
+                {saving ? <span className="spinner" /> : (canManage ? 'Schedule Activity' : 'Submit for Approval')}
               </button>
             </>
           }

@@ -15,16 +15,22 @@ def build_google_calendar_link(activity):
     if not start_dt or not end_dt:
         return ''
 
+    details = activity.description or ''
+    if getattr(activity, 'meeting_link', ''):
+        details = f"{details}\n\nJoin meeting: {activity.meeting_link}".strip()
+
     params = {
         'action': 'TEMPLATE',
         'text': activity.title,
-        'details': activity.description or '',
+        'details': details,
         'dates': (
             f"{start_dt.strftime('%Y%m%dT%H%M%SZ')}/"
             f"{end_dt.strftime('%Y%m%dT%H%M%SZ')}"
         ),
     }
-    if activity.location:
+    if activity.meeting_mode in ('ONLINE', 'HYBRID') and activity.meeting_link:
+        params['location'] = activity.meeting_link
+    elif activity.location:
         params['location'] = activity.location
     return f"https://calendar.google.com/calendar/render?{urlencode(params)}"
 
@@ -64,6 +70,18 @@ class Activity(models.Model):
         ('APPROVED', 'Approved'),
         ('REJECTED', 'Rejected'),
     )
+    MEETING_MODE_CHOICES = (
+        ('PHYSICAL', 'Physical'),
+        ('ONLINE', 'Online'),
+        ('HYBRID', 'Hybrid'),
+    )
+    MEETING_PLATFORM_CHOICES = (
+        ('', 'None'),
+        ('GOOGLE_MEET', 'Google Meet'),
+        ('ZOOM', 'Zoom'),
+        ('MICROSOFT_TEAMS', 'Microsoft Teams'),
+        ('OTHER', 'Other'),
+    )
 
     title = models.CharField(max_length=200)
     description = models.TextField()
@@ -76,6 +94,9 @@ class Activity(models.Model):
     )
     status = models.CharField(max_length=30, choices=STATUS_CHOICES, default='PENDING_APPROVAL')
     location = models.CharField(max_length=200, blank=True, default='')
+    meeting_mode = models.CharField(max_length=20, choices=MEETING_MODE_CHOICES, default='PHYSICAL')
+    meeting_platform = models.CharField(max_length=30, choices=MEETING_PLATFORM_CHOICES, blank=True, default='')
+    meeting_link = models.URLField(max_length=500, blank=True, default='')
     start_date = models.DateTimeField()
     end_date = models.DateTimeField()
     organizer = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='organized_activities')

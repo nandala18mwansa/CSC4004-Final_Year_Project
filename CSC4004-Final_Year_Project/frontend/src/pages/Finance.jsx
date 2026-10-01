@@ -32,6 +32,8 @@ const formatDateTime = (v) => {
 
 const TX_TYPE_CONFIG = {
   TOP_UP: { label: 'Top Up', bg: 'rgba(22, 163, 74, 0.1)', text: '#15803d', border: 'rgba(22, 163, 74, 0.25)' },
+  INCOME: { label: 'Income', bg: 'rgba(20, 184, 166, 0.12)', text: '#0f766e', border: 'rgba(20, 184, 166, 0.28)' },
+  ALLOCATION: { label: 'Allocation', bg: 'rgba(99, 102, 241, 0.1)', text: '#4f46e5', border: 'rgba(99, 102, 241, 0.25)' },
   DEDUCTION: { label: 'Deduction', bg: 'rgba(234, 88, 12, 0.1)', text: '#ea580c', border: 'rgba(234, 88, 12, 0.25)' },
   REFUND: { label: 'Reversal', bg: 'rgba(59, 130, 246, 0.1)', text: '#2563eb', border: 'rgba(59, 130, 246, 0.25)' },
   ADJUSTMENT: { label: 'Adjustment', bg: 'rgba(100, 116, 139, 0.1)', text: '#475569', border: 'rgba(100, 116, 139, 0.25)' },
@@ -94,15 +96,18 @@ const Badge=({value})=><span className={`badge badge-${String(value).toLowerCase
 export default function Finance(){
   const { user }=useContext(AuthContext);
   const privileged=Boolean(user?.is_superuser||user?.has_finance_privilege);
-  const [tab,setTab]=useState('overview'); const [loading,setLoading]=useState(true); const [saving,setSaving]=useState(false); const [error,setError]=useState('');
-  const [expenses,setExpenses]=useState([]); const [budgets,setBudgets]=useState([]); const [transactions,setTransactions]=useState([]); const [reports,setReports]=useState([]); const [notifications,setNotifications]=useState([]); const [dashboard,setDashboard]=useState(null);
+  const [tab,setTab]=useState('overview'); const [loading,setLoading]=useState(true); const [saving,setSaving]=useState(false); const [error,setError]=useState(''); const [infoMessage,setInfoMessage]=useState('');
+  const [expenses,setExpenses]=useState([]); const [budgets,setBudgets]=useState([]); const [transactions,setTransactions]=useState([]); const [incomeRecords,setIncomeRecords]=useState([]); const [reports,setReports]=useState([]); const [notifications,setNotifications]=useState([]); const [dashboard,setDashboard]=useState(null);
   const [modal,setModal]=useState(null); const [selected,setSelected]=useState(null);
   const [isRejecting, setIsRejecting] = useState(false);
   const [processingAction, setProcessingAction] = useState('');
   const [description,setDescription]=useState(''); const [amount,setAmount]=useState(''); const [budgetId,setBudgetId]=useState(''); const [reason,setReason]=useState('');
   const [budgetName,setBudgetName]=useState(''); const [budgetAmount,setBudgetAmount]=useState(''); const [startDate,setStartDate]=useState(''); const [endDate,setEndDate]=useState('');
-  const [reportStart,setReportStart]=useState(''); const [reportEnd,setReportEnd]=useState(''); const [reportFormat,setReportFormat]=useState('PDF'); const [reportReason,setReportReason]=useState('');
+  const [incomeSource,setIncomeSource]=useState(''); const [incomeReference,setIncomeReference]=useState(''); const [incomeDate,setIncomeDate]=useState(() => new Date().toISOString().slice(0,10));
+  const [reportStart,setReportStart]=useState(''); const [reportEnd,setReportEnd]=useState(''); const [reportFormat,setReportFormat]=useState('PDF'); const [reportReason,setReportReason]=useState(''); const [reportBudget,setReportBudget]=useState(''); const [reportType,setReportType]=useState('ALL');
   const [filterStatus,setFilterStatus]=useState(''); const [search,setSearch]=useState('');
+  const [expenseStart,setExpenseStart]=useState(''); const [expenseEnd,setExpenseEnd]=useState('');
+  const [requestStatus,setRequestStatus]=useState(''); const [requestStart,setRequestStart]=useState(''); const [requestEnd,setRequestEnd]=useState(''); const [requestBudget,setRequestBudget]=useState(''); const [requestRequester,setRequestRequester]=useState('');
   const [ledgerSearch, setLedgerSearch] = useState('');
   const [ledgerBudget, setLedgerBudget] = useState('');
   const [ledgerType, setLedgerType] = useState('');
@@ -115,8 +120,8 @@ export default function Finance(){
       const common=await Promise.all([api.get('expenses/?page_size=100'),api.get('financial-summary-requests/?page_size=100'),api.get('finance-notifications/?page_size=20')]);
       setExpenses(rows(common[0])); setReports(rows(common[1])); setNotifications(rows(common[2]));
       if(privileged){
-        const [b,t,d]=await Promise.all([api.get('budgets/?page_size=100'),api.get('budget-transactions/?page_size=100'),api.get('budget-transactions/dashboard/')]);
-        setBudgets(rows(b)); setTransactions(rows(t)); setDashboard(d.data);
+        const [b,t,d,i]=await Promise.all([api.get('budgets/?page_size=100'),api.get('budget-transactions/?page_size=100'),api.get('budget-transactions/dashboard/'),api.get('departmental-income/?page_size=100')]);
+        setBudgets(rows(b)); setTransactions(rows(t)); setDashboard(d.data); setIncomeRecords(rows(i));
       }
     }catch(e){setError(errText(e,'Unable to load finance data.'));}finally{setLoading(false);}
   },[privileged]);
@@ -213,7 +218,22 @@ export default function Finance(){
   };
 
     const pendingExpenses=useMemo(()=>expenses.filter(x=>x.status==='PENDING'),[expenses]);
-  const filteredExpenses=useMemo(()=>expenses.filter(x=>(!filterStatus||x.status===filterStatus)&&(!search||`${x.reference} ${x.description} ${x.requested_by_username}`.toLowerCase().includes(search.toLowerCase()))),[expenses,filterStatus,search]);
+  const filteredExpenses=useMemo(()=>expenses.filter((x)=>{
+    if (filterStatus && x.status !== filterStatus) return false;
+    if (expenseStart && String(x.date_requested || '').slice(0,10) < expenseStart) return false;
+    if (expenseEnd && String(x.date_requested || '').slice(0,10) > expenseEnd) return false;
+    if (search && !`${x.reference} ${x.description} ${x.requested_by_username}`.toLowerCase().includes(search.toLowerCase())) return false;
+    return true;
+  }),[expenses,filterStatus,search,expenseStart,expenseEnd]);
+  const filteredReports=useMemo(()=>reports.filter((r)=>{
+    if (requestStatus && r.status !== requestStatus) return false;
+    if (requestBudget && String(r.budget || '') !== String(requestBudget)) return false;
+    if (requestRequester && String(r.requested_by || '') !== String(requestRequester)) return false;
+    const d = String(r.requested_at || '').slice(0,10);
+    if (requestStart && d < requestStart) return false;
+    if (requestEnd && d > requestEnd) return false;
+    return true;
+  }),[reports,requestStatus,requestBudget,requestRequester,requestStart,requestEnd]);
   const unread=notifications.filter(n=>!n.is_read).length;
   const reset=()=>{
     setModal(null);
@@ -228,9 +248,14 @@ export default function Finance(){
     setBudgetAmount('');
     setStartDate('');
     setEndDate('');
+    setIncomeSource('');
+    setIncomeReference('');
+    setIncomeDate(new Date().toISOString().slice(0,10));
     setReportReason('');
     setReportStart('');
     setReportEnd('');
+    setReportBudget('');
+    setReportType('ALL');
   };
   const run=async(fn)=>{
     setSaving(true);
@@ -263,14 +288,17 @@ export default function Finance(){
     };
   const createBudget=()=>run(()=>api.post('budgets/',{department:budgetName,total_amount:Number(budgetAmount),start_date:startDate||null,end_date:endDate||null}));
   const topUp=()=>run(()=>api.post(`budgets/${selected.id}/add-funds/`,{amount:Number(budgetAmount),notes:reason||'Additional allocation'}));
-  const requestReport=()=>run(()=>api.post('financial-summary-requests/',{reason:reportReason,report_start:reportStart,report_end:reportEnd,report_format:reportFormat}));
+  const createIncome=()=>run(()=>api.post('departmental-income/',{source_name:incomeSource,description,amount:Number(amount),date_received:incomeDate,external_reference:incomeReference}));
+  const allocateIncome=()=>run(()=>api.post(`departmental-income/${selected.id}/allocate/`,{budget:budgetId,amount:Number(amount),notes:reason}));
+  const requestReport=()=>run(()=>api.post('financial-summary-requests/',{reason:reportReason,report_start:reportStart,report_end:reportEnd,report_format:reportFormat,budget:reportBudget||null,transaction_type:reportType}));
   const decideReport = (decision) => {
     setProcessingAction(decision);
     return run(() => api.post(`financial-summary-requests/${selected.id}/${decision}/`, decision === 'reject' ? { reason: reason.trim() } : {}));
   };
-  const download=async(path,fallback)=>{try{const r=await api.download(path);const u=URL.createObjectURL(r.blob);const a=document.createElement('a');a.href=u;a.download=r.filename||fallback;document.body.appendChild(a);a.click();a.remove();URL.revokeObjectURL(u);}catch(e){setError(errText(e,'Unable to download report.'));}};
+  const download=async(path,fallback,options={})=>{try{const r=await api.download(path);const u=URL.createObjectURL(r.blob);const a=document.createElement('a');a.href=u;a.download=r.filename||fallback;document.body.appendChild(a);a.click();a.remove();URL.revokeObjectURL(u);}catch(e){const message=errText(e,'Unable to download report.');if(options.emptyOk&&(e.response?.status===404||/no .*records|no financial transactions/i.test(message))){setInfoMessage('No financial records were found for the selected filters. Try changing the reporting period, budget category, or transaction type.');setError('');}else{setError(message);setInfoMessage('');}}};
   const generateReport = () => {
     setError('');
+    setInfoMessage('');
     if (reportStart && reportEnd && reportStart > reportEnd) {
       setError('From date cannot be after To date.');
       return;
@@ -278,20 +306,23 @@ export default function Finance(){
     const p = new URLSearchParams();
     if (reportStart) p.set('start', reportStart);
     if (reportEnd) p.set('end', reportEnd);
+    if (reportBudget) p.set('budget', reportBudget);
+    if (reportType && reportType !== 'ALL') p.set('type', reportType);
     p.set('format', reportFormat);
     p.set('report_format', reportFormat);
     const ext = reportFormat === 'EXCEL' ? 'xlsx' : reportFormat === 'CSV' ? 'csv' : 'pdf';
     const prefix = reportFormat === 'CSV' ? 'DMS_Financial_Ledger' : 'DMS_Financial_Statement';
     const startStr = reportStart || 'beginning';
     const endStr = reportEnd || 'today';
-    download(`budget-transactions/financial-report/?${p}`, `${prefix}_${startStr}_to_${endStr}.${ext}`);
+    download(`budget-transactions/financial-report/?${p}`, `${prefix}_${startStr}_to_${endStr}.${ext}`, { emptyOk: true });
   };
 
   if(loading)return <div className="page-container"><div className="empty-state"><div className="spinner spinner-lg"/><p>Loading finance center...</p></div></div>;
-  const tabs=privileged?['overview','expenses','budgets','ledger','reports','requests']:['overview','expenses','requests','notifications'];
+  const tabs=privileged?['overview','expenses','budgets','income','ledger','reports','requests']:['overview','expenses','requests','notifications'];
   return <div className="page-container finance-v2">
     <div className="hubtoll-page-header"><div><div className="hubtoll-module-eyebrow"><span className="hubtoll-module-badge-text">DEPARTMENT FINANCE & BUDGETING</span></div><h1 className="page-title">{privileged?'Department Finance & Budgets':'My Finance'}</h1><p className="page-subtitle">{privileged?'Financial control, approvals, ledger and reporting.':'Submit requests and track your financial activity.'}</p></div><div className="finance-actions"><button className="btn btn-secondary" onClick={()=>setModal('expense')}>+ Request Expense</button>{!privileged&&<button className="hubtoll-btn-primary" onClick={()=>setModal('reportRequest')}>Request Financial Report</button>}</div></div>
     {error&&<div className="hubtoll-alert-banner hubtoll-alert-error"><span>{error}</span></div>}
+    {infoMessage&&<div className="hubtoll-alert-banner hubtoll-alert-info"><span>{infoMessage}</span></div>}
     <div className="finance-tabs">{tabs.map(t=><button key={t} className={tab===t?'active':''} onClick={()=>setTab(t)}>{t[0].toUpperCase()+t.slice(1)}{t==='notifications'&&unread>0?` (${unread})`:''}</button>)}</div>
 
     {tab==='overview'&&privileged&&<>
@@ -571,7 +602,7 @@ export default function Finance(){
 
     {tab==='overview'&&!privileged&&<><div className="finance-kpis"><div><span>My Pending</span><strong>{expenses.filter(e=>e.status==='PENDING').length}</strong></div><div><span>My Approved</span><strong>{expenses.filter(e=>e.status==='APPROVED').length}</strong></div><div><span>My Rejected</span><strong>{expenses.filter(e=>e.status==='REJECTED').length}</strong></div><div><span>Unread Notifications</span><strong>{unread}</strong></div></div><section className="hubtoll-card finance-panel"><div className="finance-panel-head"><h3>Recent Requests</h3><button onClick={()=>setTab('expenses')}>View history</button></div>{expenses.slice(0,5).map(e=><div className="compact-row" key={e.id}><div><strong>{e.reference}</strong><small>{e.description}</small></div><span>{money(e.amount)}</span><Badge value={e.status}/></div>)}</section></>}
 
-    {tab==='expenses'&&<section className="hubtoll-card finance-panel"><div className="finance-panel-head"><h3>{privileged?'Expense Management':'My Expense Requests'}</h3><button className="hubtoll-btn-primary" onClick={()=>setModal('expense')}>+ Request Expense</button></div><div className="finance-filters"><input placeholder="Search reference, description or requester" value={search} onChange={e=>setSearch(e.target.value)}/><select value={filterStatus} onChange={e=>setFilterStatus(e.target.value)}><option value="">All statuses</option><option>PENDING</option><option>APPROVED</option><option>REJECTED</option></select></div><div className="table-wrap"><table className="finance-table"><thead><tr><th>Reference</th>{privileged&&<th>Requester</th>}<th>Description</th><th>Budget</th><th>Amount</th><th>Date</th><th>Status</th><th>Feedback</th>{privileged&&<th>Action</th>}</tr></thead><tbody>{filteredExpenses.map(e=><tr key={e.id}><td>{e.reference}</td>{privileged&&<td>{e.requested_by_username}</td>}<td>{e.description}</td><td>{e.budget_department||'Unassigned'}</td><td>{money(e.amount)}</td><td>{day(e.date_requested)}</td><td><Badge value={e.status}/></td><td>{e.rejection_reason||'—'}</td>{privileged&&<td>{e.status==='PENDING'?<button onClick={()=>{setSelected(e);setBudgetId(e.budget||'');setReason('');setIsRejecting(false);setProcessingAction('');setModal('expenseDecision');}}>Review</button>:'—'}</td>}</tr>)}</tbody></table></div></section>}
+    {tab==='expenses'&&<section className="hubtoll-card finance-panel"><div className="finance-panel-head"><h3>{privileged?'Expense Management':'My Expense Requests'}</h3><button className="hubtoll-btn-primary" onClick={()=>setModal('expense')}>+ Request Expense</button></div><div className="finance-filters"><input placeholder="Search reference, description or requester" value={search} onChange={e=>setSearch(e.target.value)}/><select value={filterStatus} onChange={e=>setFilterStatus(e.target.value)}><option value="">All statuses</option><option>PENDING</option><option>APPROVED</option><option>REJECTED</option></select><input type="date" value={expenseStart} onChange={e=>setExpenseStart(e.target.value)} title="From date"/><input type="date" value={expenseEnd} onChange={e=>setExpenseEnd(e.target.value)} title="To date"/><button type="button" className="btn-filter-clear" onClick={()=>{setSearch('');setFilterStatus('');setExpenseStart('');setExpenseEnd('');}}>Clear Filters</button></div><div className="table-wrap"><table className="finance-table"><thead><tr><th>Reference</th>{privileged&&<th>Requester</th>}<th>Description</th><th>Budget</th><th>Amount</th><th>Date</th><th>Status</th><th>Feedback</th>{privileged&&<th>Action</th>}</tr></thead><tbody>{filteredExpenses.map(e=><tr key={e.id}><td>{e.reference}</td>{privileged&&<td>{e.requested_by_username}</td>}<td>{e.description}</td><td>{e.budget_department||'Unassigned'}</td><td>{money(e.amount)}</td><td>{day(e.date_requested)}</td><td><Badge value={e.status}/></td><td>{e.rejection_reason||'—'}</td>{privileged&&<td>{e.status==='PENDING'?<button onClick={()=>{setSelected(e);setBudgetId(e.budget||'');setReason('');setIsRejecting(false);setProcessingAction('');setModal('expenseDecision');}}>Review</button>:'—'}</td>}</tr>)}</tbody></table></div></section>}
 
     {tab==='budgets'&&privileged&&(
       <>
@@ -849,6 +880,33 @@ export default function Finance(){
       </>
     )}
 
+    {tab==='income'&&privileged&&(
+      <section className="hubtoll-card finance-panel">
+        <div className="finance-panel-head">
+          <div>
+            <h3>Departmental Income</h3>
+            <p className="page-subtitle">Income received by the department and allocations into budget categories.</p>
+          </div>
+          <button className="hubtoll-btn-primary" onClick={()=>setModal('income')}>+ Record Income</button>
+        </div>
+        <div className="finance-kpis">
+          <div><span>Total Income</span><strong>{money(dashboard?.total_income_received)}</strong></div>
+          <div><span>Unallocated Income</span><strong>{money(dashboard?.unallocated_income)}</strong></div>
+          <div><span>Budget Allocations</span><strong>{money(incomeRecords.reduce((sum,i)=>sum + (Number(i.amount || 0) - Number(i.unallocated_amount || 0)),0))}</strong></div>
+          <div><span>Income Records</span><strong>{incomeRecords.length}</strong></div>
+        </div>
+        <div className="table-wrap" style={{ marginTop: '1rem' }}>
+          <table className="finance-table">
+            <thead><tr><th>Reference</th><th>Source</th><th>Date Received</th><th>Amount</th><th>Unallocated</th><th>Status</th><th>Recorded By</th><th>Action</th></tr></thead>
+            <tbody>
+              {incomeRecords.map((i)=><tr key={i.id}><td>{i.reference}</td><td><strong>{i.source_name}</strong><br/><small>{i.description || i.external_reference || ''}</small></td><td>{day(i.date_received)}</td><td>{money(i.amount)}</td><td>{money(i.unallocated_amount)}</td><td><Badge value={i.allocation_status}/></td><td>{i.recorded_by_username || 'System'}</td><td>{Number(i.unallocated_amount || 0)>0?<button onClick={()=>{setSelected(i);setAmount('');setBudgetId('');setReason('');setModal('allocateIncome');}}>Allocate</button>:'—'}</td></tr>)}
+              {incomeRecords.length===0&&<tr><td colSpan="8" style={{ textAlign:'center', padding:'1.5rem' }}>No departmental income has been recorded.</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    )}
+
     {tab==='ledger'&&privileged&&(
       <>
         {/* Compact Ledger Financial Summary */}
@@ -984,6 +1042,7 @@ export default function Finance(){
               >
                 <option value="">All Types</option>
                 <option value="TOP_UP">Top Up</option>
+                <option value="ALLOCATION">Allocation</option>
                 <option value="DEDUCTION">Deduction</option>
                 <option value="REFUND">Reversal</option>
                 <option value="ADJUSTMENT">Adjustment</option>
@@ -1016,17 +1075,10 @@ export default function Finance(){
             {hasLedgerFilters && (
               <button
                 type="button"
-                className="btn btn-secondary"
+                className="btn-filter-clear"
                 onClick={resetLedgerFilters}
-                style={{
-                  height: '36px',
-                  padding: '0 0.75rem',
-                  fontSize: '0.8rem',
-                  borderRadius: '6px',
-                  whiteSpace: 'nowrap'
-                }}
               >
-                Reset Filters
+                Clear Filters
               </button>
             )}
           </div>
@@ -1056,11 +1108,10 @@ export default function Finance(){
                         <div style={{ marginTop: '0.5rem' }}>
                           <button
                             type="button"
-                            className="btn btn-secondary"
+                            className="btn-filter-clear"
                             onClick={resetLedgerFilters}
-                            style={{ fontSize: '0.8rem', padding: '0.35rem 0.85rem' }}
                           >
-                            Clear All Filters
+                            Clear Filters
                           </button>
                         </div>
                       )}
@@ -1201,6 +1252,24 @@ export default function Finance(){
                 </select>
               </div>
 
+              <div className="form-group" style={{ margin: 0 }}>
+                <label className="form-label">Budget Category</label>
+                <select className="form-select" style={{ width: '100%' }} value={reportBudget} onChange={(e) => setReportBudget(e.target.value)}>
+                  <option value="">All Budget Categories</option>
+                  {budgets.map((b)=><option key={b.id} value={b.id}>{b.department}</option>)}
+                </select>
+              </div>
+
+              <div className="form-group" style={{ margin: 0 }}>
+                <label className="form-label">Transaction Type</label>
+                <select className="form-select" style={{ width: '100%' }} value={reportType} onChange={(e) => setReportType(e.target.value)}>
+                  <option value="ALL">All Transactions</option>
+                  <option value="INCOME">Income</option>
+                  <option value="EXPENSE">Expense</option>
+                  <option value="ALLOCATION">Allocation / Transfer</option>
+                </select>
+              </div>
+
               <div style={{ display: 'flex', alignItems: 'flex-end' }}>
                 <button
                   type="button"
@@ -1333,11 +1402,45 @@ export default function Finance(){
       </>
     )}
 
-    {tab==='requests'&&<section className="hubtoll-card finance-panel"><div className="finance-panel-head"><h3>{privileged?'Financial Report Requests':'My Financial Report Requests'}</h3>{!privileged&&<button className="hubtoll-btn-primary" onClick={()=>setModal('reportRequest')}>+ New Request</button>}</div><div className="table-wrap"><table className="finance-table"><thead><tr><th>Reference</th>{privileged&&<th>Requester</th>}<th>Period</th><th>Format</th><th>Reason</th><th>Status</th><th>Decision</th><th>Report</th></tr></thead><tbody>{reports.map(r=><tr key={r.id}><td>{r.reference}</td>{privileged&&<td>{r.requested_by_username}</td>}<td>{day(r.report_start)} – {day(r.report_end)}</td><td>{r.report_format}</td><td>{r.reason}</td><td><Badge value={r.status}/></td><td>{r.rejection_reason||r.response_notes||'—'}</td><td>{r.status==='COMPLETED'?<button onClick={()=>download(`financial-summary-requests/${r.id}/download/`,`${r.reference}.${r.report_format === 'EXCEL' ? 'xlsx' : r.report_format.toLowerCase()}`)}>Download</button>:privileged&&r.status==='PENDING'?<button onClick={()=>{setSelected(r);setIsRejecting(false);setReason('');setModal('reportDecision')}}>Review</button>:'—'}</td></tr>)}</tbody></table></div></section>}
+    {tab==='requests'&&<section className="hubtoll-card finance-panel"><div className="finance-panel-head"><h3>{privileged?'Financial Report Requests':'My Financial Report Requests'}</h3>{!privileged&&<button className="hubtoll-btn-primary" onClick={()=>setModal('reportRequest')}>+ New Request</button>}</div><div className="finance-filters"><select value={requestStatus} onChange={e=>setRequestStatus(e.target.value)}><option value="">All statuses</option><option>PENDING</option><option>COMPLETED</option><option>REJECTED</option></select><input type="date" value={requestStart} onChange={e=>setRequestStart(e.target.value)} title="Requested from"/><input type="date" value={requestEnd} onChange={e=>setRequestEnd(e.target.value)} title="Requested to"/>{privileged&&<select value={requestBudget} onChange={e=>setRequestBudget(e.target.value)}><option value="">All budgets</option>{budgets.map(b=><option key={b.id} value={b.id}>{b.department}</option>)}</select>}<button type="button" className="btn-filter-clear" onClick={()=>{setRequestStatus('');setRequestStart('');setRequestEnd('');setRequestBudget('');setRequestRequester('');}}>Clear Filters</button></div><div className="table-wrap"><table className="finance-table"><thead><tr><th>Reference</th>{privileged&&<th>Requester</th>}<th>Period</th><th>Budget</th><th>Type</th><th>Format</th><th>Reason</th><th>Status</th><th>Decision</th><th>Report</th></tr></thead><tbody>{filteredReports.map(r=><tr key={r.id}><td>{r.reference}</td>{privileged&&<td>{r.requested_by_username}</td>}<td>{day(r.report_start)} – {day(r.report_end)}</td><td>{r.budget_department||'All'}</td><td>{r.transaction_type||'ALL'}</td><td>{r.report_format}</td><td>{r.reason}</td><td><Badge value={r.status}/></td><td>{r.rejection_reason||r.response_notes||'—'}</td><td>{r.status==='COMPLETED'?<button onClick={()=>download(`financial-summary-requests/${r.id}/download/`,`${r.reference}.${r.report_format === 'EXCEL' ? 'xlsx' : r.report_format.toLowerCase()}`)}>Download</button>:privileged&&r.status==='PENDING'?<button onClick={()=>{setSelected(r);setIsRejecting(false);setReason('');setModal('reportDecision')}}>Review</button>:'—'}</td></tr>)}</tbody></table></div></section>}
 
     {tab==='notifications'&&!privileged&&<section className="hubtoll-card finance-panel"><div className="finance-panel-head"><h3>Notifications</h3>{unread>0&&<button onClick={()=>run(()=>api.post('finance-notifications/mark-all-read/',{}))}>Mark all read</button>}</div>{notifications.map(n=><div className={`notification-row ${n.is_read?'':'unread'}`} key={n.id}><div><strong>{n.title}</strong><p>{n.message}</p><small>{day(n.created_at)}</small></div>{!n.is_read&&<button onClick={()=>run(()=>api.post(`finance-notifications/${n.id}/mark-read/`,{}))}>Mark read</button>}</div>)}</section>}
 
-    <Modal
+      <Modal
+        isOpen={modal === 'income'}
+        onClose={reset}
+        title="Record Departmental Income"
+        footer={<div style={{ display:'flex',justifyContent:'flex-end',gap:'0.75rem',width:'100%' }}><button type="button" className="btn btn-secondary" onClick={reset} disabled={saving}>Cancel</button><button type="button" className="hubtoll-btn-primary" disabled={saving || !incomeSource.trim() || !amount || !incomeDate} onClick={createIncome}>{saving?'Recording...':'Record Income'}</button></div>}
+      >
+        <div className="hubtoll-modal-form">
+          <div className="form-group"><label className="form-label">Income Source *</label><input className="form-input" value={incomeSource} onChange={(e)=>setIncomeSource(e.target.value)} placeholder="e.g. Workshop registration fees" /></div>
+          <div className="modal-form-grid-2">
+            <div className="form-group"><label className="form-label">Amount (ZMW) *</label><input type="number" min="0.01" step="0.01" className="form-input" value={amount} onChange={(e)=>setAmount(e.target.value)} /></div>
+            <div className="form-group"><label className="form-label">Date Received *</label><input type="date" className="form-input" value={incomeDate} onChange={(e)=>setIncomeDate(e.target.value)} /></div>
+          </div>
+          <div className="form-group"><label className="form-label">Reference</label><input className="form-input" value={incomeReference} onChange={(e)=>setIncomeReference(e.target.value)} placeholder="Receipt, bank slip, project code..." /></div>
+          <div className="form-group"><label className="form-label">Description</label><textarea className="form-input" rows={3} value={description} onChange={(e)=>setDescription(e.target.value)} placeholder="Short audit note describing where the money came from..." /></div>
+        </div>
+      </Modal>
+
+      <Modal
+        isOpen={modal === 'allocateIncome'}
+        onClose={reset}
+        title={`Allocate Income — ${selected?.reference || ''}`}
+        footer={<div style={{ display:'flex',justifyContent:'flex-end',gap:'0.75rem',width:'100%' }}><button type="button" className="btn btn-secondary" onClick={reset} disabled={saving}>Cancel</button><button type="button" className="hubtoll-btn-primary" disabled={saving || !budgetId || !amount || Number(amount)<=0} onClick={allocateIncome}>{saving?'Allocating...':'Allocate to Budget'}</button></div>}
+      >
+        <div className="hubtoll-modal-form">
+          <div style={{ padding:'0.85rem 1rem', border:'1px solid var(--border-color)', borderRadius:'8px', background:'var(--bg-subtle,#f8fafc)' }}>
+            <strong>{selected?.source_name}</strong>
+            <div style={{ fontSize:'0.85rem', color:'var(--text-secondary)', marginTop:'0.25rem' }}>Unallocated balance: {money(selected?.unallocated_amount)}</div>
+          </div>
+          <div className="form-group"><label className="form-label">Target Budget *</label><select className="form-select" value={budgetId} onChange={(e)=>setBudgetId(e.target.value)}><option value="">Select budget...</option>{budgets.map((b)=><option key={b.id} value={b.id}>{b.department} ({money(b.current_balance)} available)</option>)}</select></div>
+          <div className="form-group"><label className="form-label">Amount to Allocate *</label><input type="number" min="0.01" max={selected?.unallocated_amount || undefined} step="0.01" className="form-input" value={amount} onChange={(e)=>setAmount(e.target.value)} /></div>
+          <div className="form-group"><label className="form-label">Allocation Notes</label><textarea className="form-input" rows={2} value={reason} onChange={(e)=>setReason(e.target.value)} placeholder="Purpose of this internal allocation..." /></div>
+        </div>
+      </Modal>
+
+      <Modal
         isOpen={modal === 'expense'}
         onClose={reset}
         title="Request Expense"
@@ -1783,6 +1886,25 @@ export default function Finance(){
               >
                 <option value="PDF">PDF Financial Statement</option>
                 <option value="EXCEL">Excel (.xlsx)</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="modal-form-grid-2">
+            <div className="form-group">
+              <label className="form-label">Budget Category</label>
+              <select className="form-select" value={reportBudget} onChange={(e) => setReportBudget(e.target.value)}>
+                <option value="">All Budget Categories</option>
+                {budgets.map((b)=><option key={b.id} value={b.id}>{b.department}</option>)}
+              </select>
+            </div>
+            <div className="form-group">
+              <label className="form-label">Transaction Type</label>
+              <select className="form-select" value={reportType} onChange={(e) => setReportType(e.target.value)}>
+                <option value="ALL">All Transactions</option>
+                <option value="INCOME">Income</option>
+                <option value="EXPENSE">Expense</option>
+                <option value="ALLOCATION">Allocation / Transfer</option>
               </select>
             </div>
           </div>

@@ -469,6 +469,11 @@ button, input, select, textarea {
   text-decoration: underline;
 }
 
+.hubtoll-forgot-below {
+  display: inline-flex;
+  margin-top: 0.45rem;
+}
+
 .hubtoll-error-alert {
   display: flex;
   align-items: center;
@@ -538,6 +543,63 @@ button, input, select, textarea {
 .hubtoll-btn-signin:disabled {
   opacity: 0.65;
   cursor: not-allowed;
+}
+
+.hubtoll-auth-divider {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  color: #94a3b8;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  margin: 1rem 0 0.85rem;
+}
+
+.hubtoll-auth-divider::before,
+.hubtoll-auth-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: #e2e8f0;
+}
+
+.hubtoll-google-wrap,
+.hubtoll-google-button {
+  display: flex;
+  justify-content: center;
+  width: 100%;
+}
+
+.hubtoll-google-loading {
+  margin-top: 0.5rem;
+  font-size: 0.8rem;
+  color: #64748b;
+  text-align: center;
+}
+
+.hubtoll-google-fallback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.65rem;
+  width: 100%;
+  padding: 0.78rem 1rem;
+  border-radius: 9999px;
+  border: 1px solid #cbd5e1;
+  background: #ffffff;
+  color: #334155;
+  font-weight: 700;
+}
+
+.hubtoll-google-fallback:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.hubtoll-google-g {
+  font-weight: 800;
+  color: #1a73e8;
 }
 
 .hubtoll-spinner {
@@ -1498,6 +1560,12 @@ button, input, select, textarea {
   color: #991b1b;
 }
 
+.hubtoll-alert-info {
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  color: #1e40af;
+}
+
 /* Buttons */
 .hubtoll-btn-primary {
   display: inline-flex;
@@ -1551,6 +1619,37 @@ button, input, select, textarea {
 
 .btn-secondary:hover {
   background: #f1f5f9;
+}
+
+.btn-filter-clear {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 36px;
+  padding: 0.55rem 0.9rem;
+  border-radius: 8px;
+  border: 1px solid #cbd5e1;
+  background: #ffffff;
+  color: #334155;
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.btn-filter-clear:hover:not(:disabled) {
+  background: #f8fafc;
+  border-color: #94a3b8;
+}
+
+.btn-filter-clear:focus-visible {
+  outline: 2px solid rgba(59, 130, 246, 0.35);
+  outline-offset: 2px;
+}
+
+.btn-filter-clear:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
 .btn-danger {

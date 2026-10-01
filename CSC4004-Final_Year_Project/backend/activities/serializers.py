@@ -1,5 +1,7 @@
 import re
 from rest_framework import serializers
+from django.core.validators import URLValidator
+from django.core.exceptions import ValidationError as DjangoValidationError
 from .models import Activity, ActivityType
 from users.models import User, RecipientGroup
 
@@ -68,6 +70,21 @@ class ActivitySerializer(serializers.ModelSerializer):
 
         if start_date and end_date and end_date <= start_date:
             raise serializers.ValidationError({'end_date': 'End date must be after start date.'})
+
+        meeting_mode = attrs.get('meeting_mode') or getattr(self.instance, 'meeting_mode', 'PHYSICAL')
+        meeting_platform = attrs.get('meeting_platform') or getattr(self.instance, 'meeting_platform', '')
+        meeting_link = attrs.get('meeting_link') or getattr(self.instance, 'meeting_link', '')
+        if meeting_mode in {'ONLINE', 'HYBRID'}:
+            if not meeting_platform:
+                raise serializers.ValidationError({'meeting_platform': 'Meeting platform is required for online or hybrid activities.'})
+            if not meeting_link:
+                raise serializers.ValidationError({'meeting_link': 'Meeting link is required for online or hybrid activities.'})
+        if meeting_link:
+            validator = URLValidator(schemes=['http', 'https'])
+            try:
+                validator(meeting_link)
+            except DjangoValidationError:
+                raise serializers.ValidationError({'meeting_link': 'Enter a valid http or https meeting URL.'})
 
         external_text = attrs.get('external_participants', '')
         if external_text:

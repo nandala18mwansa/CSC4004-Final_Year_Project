@@ -1,7 +1,12 @@
 from django.utils import timezone
 from django.db import models
 from django.conf import settings
+import uuid
 from activities.models import Activity
+
+
+def resource_report_ref():
+    return f"RR-{uuid.uuid4().hex[:10].upper()}"
 
 
 class ResourceCategory(models.Model):
@@ -143,3 +148,39 @@ class Allocation(models.Model):
 
     def __str__(self):
         return f"{self.resource.name} allocated to {self.allocated_to.username}"
+
+
+class ResourceReportRequest(models.Model):
+    STATUS_CHOICES = (
+        ('PENDING', 'Pending'),
+        ('COMPLETED', 'Completed'),
+        ('REJECTED', 'Rejected'),
+    )
+    FORMAT_CHOICES = (
+        ('PDF', 'PDF'),
+        ('EXCEL', 'Excel (.xlsx)'),
+        ('CSV', 'CSV (.csv)'),
+    )
+    REPORT_TYPE_CHOICES = (
+        ('RESOURCE_REGISTER', 'Resource Register'),
+    )
+
+    reference = models.CharField(max_length=24, unique=True, default=resource_report_ref, editable=False)
+    requested_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name='resource_report_requests')
+    report_type = models.CharField(max_length=40, choices=REPORT_TYPE_CHOICES, default='RESOURCE_REGISTER')
+    report_format = models.CharField(max_length=10, choices=FORMAT_CHOICES, default='PDF')
+    filters = models.JSONField(default=dict, blank=True)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='PENDING')
+    rejection_reason = models.TextField(blank=True, default='')
+    response_notes = models.TextField(blank=True, default='')
+    generated_report = models.FileField(upload_to='resource_reports/%Y/%m/', blank=True, null=True)
+    requested_at = models.DateTimeField(auto_now_add=True)
+    processed_at = models.DateTimeField(null=True, blank=True)
+    processed_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, null=True, blank=True, related_name='processed_resource_report_requests')
+
+    class Meta:
+        db_table = 'resource_report_requests'
+        ordering = ['-requested_at']
+
+    def __str__(self):
+        return f"{self.reference} by {self.requested_by.username} ({self.status})"

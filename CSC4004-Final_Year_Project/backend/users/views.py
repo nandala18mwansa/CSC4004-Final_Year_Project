@@ -24,6 +24,7 @@ from .serializers import (
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from rest_framework_simplejwt.views import TokenObtainPairView
 from rest_framework.exceptions import AuthenticationFailed
+from rest_framework_simplejwt.tokens import RefreshToken
 
 
 class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
@@ -52,6 +53,48 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
 
 class CustomTokenObtainPairView(TokenObtainPairView):
     serializer_class = CustomTokenObtainPairSerializer
+
+
+class GoogleLoginView(APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request):
+        credential = str(request.data.get('credential') or '').strip()
+        client_id = getattr(settings, 'GOOGLE_OAUTH_CLIENT_ID', '')
+        if not client_id:
+            return Response({'detail': 'Google login is not configured for this DMS instance.'}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+        if not credential:
+            return Response({'credential': 'Google credential token is required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            from google.auth.transport import requests as google_requests
+            from google.oauth2 import id_token
+        except Exception:
+            return Response({'detail': 'Google authentication support is not installed on the server.'}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+
+        try:
+            idinfo = id_token.verify_oauth2_token(credential, google_requests.Request(), client_id)
+        except Exception:
+            return Response({'detail': 'Google authentication failed. Please try again.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        email = str(idinfo.get('email') or '').strip().lower()
+        if not email or not idinfo.get('email_verified'):
+            return Response({'detail': 'Google did not provide a verified email address.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        matches = User.objects.filter(email__iexact=email)
+        if matches.count() > 1:
+            return Response({'detail': 'Multiple DMS accounts use this email address. Contact the system administrator.'}, status=status.HTTP_409_CONFLICT)
+        user = matches.first()
+        if not user:
+            return Response({'detail': 'This Google account is not linked to an authorized DMS account. Contact the system administrator.'}, status=status.HTTP_403_FORBIDDEN)
+        if not user.is_active:
+            return Response({'detail': 'This DMS account has been disabled. Contact the system administrator.'}, status=status.HTTP_403_FORBIDDEN)
+
+        refresh = RefreshToken.for_user(user)
+        return Response({
+            'refresh': str(refresh),
+            'access': str(refresh.access_token),
+        })
 
 
 class RegisterView(generics.CreateAPIView):
