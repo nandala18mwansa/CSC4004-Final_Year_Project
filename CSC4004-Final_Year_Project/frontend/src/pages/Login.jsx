@@ -93,7 +93,7 @@ const Login = () => {
           <div className="hubtoll-hero-body">
             <div className="hubtoll-eyebrow-row">
               <span className="hubtoll-dash" />
-              <span className="hubtoll-eyebrow-text">DEPARTMENTAL OPERATIONS SUITE</span>
+              <span className="hubtoll-eyebrow-text">DEPARTMENTAL OPERATIONS MANAGEMENT</span>
             </div>
 
             <h1 className="hubtoll-hero-heading">
