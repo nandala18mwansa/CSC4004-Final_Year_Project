@@ -47,7 +47,7 @@ const PasswordResetShell = ({ children, title, subtitle }) => (
         {children}
       </div>
       <footer className="hubtoll-right-footer">
-        <span>© 2026 Departmental Resource and Financial Management System</span>
+        <span>© 2026 Departmental Resource, Activities & Financial Management System</span>
       </footer>
     </div>
   </div>

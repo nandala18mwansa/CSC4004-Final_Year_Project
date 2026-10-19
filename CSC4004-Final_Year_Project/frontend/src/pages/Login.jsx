@@ -97,7 +97,7 @@ const Login = () => {
             </div>
 
             <h1 className="hubtoll-hero-heading">
-              Departmental Resource & Financial Management.
+              Departmental Resource, Activities & Financial Management System.
             </h1>
 
             <p className="hubtoll-hero-subheading">
@@ -267,7 +267,7 @@ const Login = () => {
 
         {/* Right Footer */}
         <footer className="hubtoll-right-footer">
-          <span>© 2026 Departmental Resource and Financial Management System</span>
+          <span>© 2026 Departmental Resource, Activities & Financial Management System</span>
         </footer>
       </div>
     </div>
