@@ -215,6 +215,8 @@ const Dashboard = () => {
     .sort((a, b) => new Date(b.time) - new Date(a.time))
     .slice(0, 5);
 
+  const departmentName = (user?.department || '').trim().replace(/\s+department$/i, '');
+
   return (
     <div className="page-container">
       <div className="hubtoll-hero-banner">
@@ -223,16 +225,16 @@ const Dashboard = () => {
             Welcome back, {user?.username}
           </h1>
           <p style={{ color: '#cbd5e1', fontSize: '0.95rem' }}>
-            {user?.department ? `${user.department} Department` : 'Department Administration'} | Department command centre
+            {departmentName ? `${departmentName} Department` : 'Department Administration'}
           </p>
         </div>
         <div className="hubtoll-workspace-tag-card">
           <div className="hubtoll-workspace-tag-logo">
-            {user?.department ? user.department.slice(0, 2).toUpperCase() : 'DM'}
+            {departmentName ? departmentName.slice(0, 2).toUpperCase() : 'DM'}
           </div>
           <div className="hubtoll-workspace-tag-info">
             <span className="hubtoll-workspace-tag-eyebrow">WORKSPACE</span>
-            <span className="hubtoll-workspace-tag-title">{user?.department || 'Administration'}</span>
+            <span className="hubtoll-workspace-tag-title">{departmentName || 'Administration'}</span>
             <span className="hubtoll-workspace-tag-category">Summary and action hub</span>
           </div>
         </div>

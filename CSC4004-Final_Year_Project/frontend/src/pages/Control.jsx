@@ -32,6 +32,19 @@ const Control = () => {
   const [hasFinanceBalanceAccess, setHasFinanceBalanceAccess] = useState(false);
   const [hasResourcePrivilege, setHasResourcePrivilege] = useState(false);
   const [hasActivityPrivilege, setHasActivityPrivilege] = useState(false);
+  const [hasControlPrivilege, setHasControlPrivilege] = useState(false);
+  const [specialPrivileges, setSpecialPrivileges] = useState({});
+  const specialPrivilegeOptions = [
+    ['has_announcement_create', 'Create and edit own announcement drafts'],
+    ['has_announcement_publish', 'Publish announcements'],
+    ['has_announcement_archive', 'Archive announcements'],
+    ['has_announcement_manage_all', 'Manage all announcements and delivery retries'],
+    ['has_developer_options', 'View Developer Options and manage maintenance mode'],
+    ['has_destructive_maintenance', 'Clear selected records and restore database backups'],
+  ];
+  const visibleSpecialPrivilegeOptions = specialPrivilegeOptions.filter(([field]) => (
+    !['has_developer_options', 'has_destructive_maintenance'].includes(field) || role === 'ADMIN'
+  ));
   const [isActive, setIsActive] = useState(true);
   const [categoryName, setCategoryName] = useState('');
   const [categoryDescription, setCategoryDescription] = useState('');
@@ -59,7 +72,7 @@ const Control = () => {
   };
 
   useEffect(() => {
-    if (user?.role === 'ADMIN') {
+    if (user?.is_superuser || user?.has_control_privilege) {
       loadUsers();
       loadUserCategories();
       const interval = setInterval(() => {
@@ -84,6 +97,8 @@ const Control = () => {
     setHasFinanceBalanceAccess(false);
     setHasResourcePrivilege(false);
     setHasActivityPrivilege(false);
+    setHasControlPrivilege(false);
+    setSpecialPrivileges({});
     setIsActive(true);
     setError('');
     setModalType('create_user');
@@ -100,6 +115,8 @@ const Control = () => {
     setHasFinanceBalanceAccess(Boolean(targetUser.has_finance_balance_access));
     setHasResourcePrivilege(Boolean(targetUser.has_resource_privilege));
     setHasActivityPrivilege(Boolean(targetUser.has_activity_privilege));
+    setHasControlPrivilege(Boolean(targetUser.has_control_privilege));
+    setSpecialPrivileges(Object.fromEntries(specialPrivilegeOptions.map(([field]) => [field, Boolean(targetUser[field])])));
     setIsActive(targetUser.is_active);
     setError('');
     setModalType('edit_user');
@@ -136,6 +153,8 @@ const Control = () => {
         has_finance_balance_access: hasFinanceBalanceAccess,
         has_resource_privilege: hasResourcePrivilege,
         has_activity_privilege: hasActivityPrivilege,
+        has_control_privilege: hasControlPrivilege,
+        ...specialPrivileges,
         is_active: isActive,
       });
       setUsers((prev) => [response.data, ...prev]);
@@ -166,6 +185,8 @@ const Control = () => {
         has_finance_balance_access: hasFinanceBalanceAccess,
         has_resource_privilege: hasResourcePrivilege,
         has_activity_privilege: hasActivityPrivilege,
+        has_control_privilege: hasControlPrivilege,
+        ...specialPrivileges,
         is_active: isActive,
       });
       setUsers((prev) => prev.map((u) => (u.id === activeUser.id ? response.data : u)));
@@ -242,19 +263,19 @@ const Control = () => {
 
   const handleDeleteUser = async (targetUser) => {
     if (targetUser.id === user?.id) {
-      alert("You cannot archive your own active administrator account.");
+      alert("You cannot delete your own administrator account.");
       return;
     }
-    if (!window.confirm(`Archive user "${targetUser.username}"? Their account will be blocked, but historical records will remain intact.`)) return;
+    if (!window.confirm(`Permanently delete user "${targetUser.username}"? This removes the account from the system and cannot be undone.`)) return;
     setError('');
     try {
-      const response = await api.delete(`users-admin/${targetUser.id}/`);
-      setUsers((prev) => prev.map((u) => (u.id === targetUser.id ? response.data : u)));
-      setSuccessMsg(`✓ User "${targetUser.username}" archived and blocked`);
+      await api.delete(`users-admin/${targetUser.id}/`);
+      setUsers((prev) => prev.filter((u) => u.id !== targetUser.id));
+      setSuccessMsg(`✓ User "${targetUser.username}" deleted`);
       setTimeout(() => setSuccessMsg(''), 3000);
     } catch (err) {
       console.error('Failed to delete user', err);
-      setError('Unable to delete user.');
+      setError(err.response?.data?.detail || 'Unable to delete user.');
     }
   };
 
@@ -272,6 +293,9 @@ const Control = () => {
     u.has_finance_privilege ? 'Finance & Budgets' : null,
     u.has_resource_privilege ? 'Resources & Assets' : null,
     u.has_activity_privilege ? 'Activities & Events' : null,
+    u.has_control_privilege ? 'Control & Access' : null,
+    u.has_announcement_create || u.has_announcement_publish ? 'Announcements' : null,
+    u.has_developer_options ? 'Developer Options' : null,
   ].filter(Boolean);
 
   const classificationFor = (u) => {
@@ -280,7 +304,7 @@ const Control = () => {
     return privileges.length ? 'Module Admin' : 'Staff';
   };
 
-  if (user?.role !== 'ADMIN') {
+  if (!(user?.is_superuser || user?.has_control_privilege)) {
     return (
       <div className="page-container">
         <div className="empty-state">
@@ -294,7 +318,7 @@ const Control = () => {
   const totalUsers = users.length;
   const activeCount = users.filter((u) => u.is_active).length;
   const blockedCount = users.filter((u) => !u.is_active).length;
-  const adminCount = users.filter((u) => u.role === 'ADMIN').length;
+  const controlCount = users.filter((u) => u.is_superuser || u.has_control_privilege).length;
 
   return (
     <div className="page-container">
@@ -362,7 +386,7 @@ const Control = () => {
 
         <div className="hubtoll-kpi-card accent-purple">
           <div className="hubtoll-kpi-label">CONTROL PRIVILEGES</div>
-          <div className="hubtoll-kpi-value">{adminCount}</div>
+          <div className="hubtoll-kpi-value">{controlCount}</div>
           <div className="hubtoll-kpi-sub">Full administrative controllers</div>
         </div>
 
@@ -462,7 +486,8 @@ const Control = () => {
                         {u.has_finance_balance_access && <span className="badge badge-info">Balance View</span>}
                         {u.has_resource_privilege && <span className="badge badge-info">Resources & Assets</span>}
                         {u.has_activity_privilege && <span className="badge badge-pending">Activities & Events</span>}
-                        {!u.has_finance_privilege && !u.has_finance_balance_access && !u.has_resource_privilege && !u.has_activity_privilege && (
+                        {u.has_control_privilege && <span className="badge badge-purple">Control & Access</span>}
+                        {!u.has_finance_privilege && !u.has_finance_balance_access && !u.has_resource_privilege && !u.has_activity_privilege && !u.has_control_privilege && (
                           <span className="badge badge-staff">None</span>
                         )}
                       </div>
@@ -605,6 +630,14 @@ const Control = () => {
                   <input type="checkbox" checked={hasActivityPrivilege} onChange={(e) => setHasActivityPrivilege(e.target.checked)} />
                   Activities & Events administrative privilege
                 </label>
+                <label style={{ display: 'flex', gap: '0.6rem', alignItems: 'center' }}>
+                  <input type="checkbox" checked={hasControlPrivilege} onChange={(e) => setHasControlPrivilege(e.target.checked)} />
+                  Control & Access administrative privilege
+                </label>
+                {visibleSpecialPrivilegeOptions.map(([field, label]) => <label key={field} style={{ display: 'flex', gap: '0.6rem', alignItems: 'center' }}>
+                  <input type="checkbox" checked={Boolean(specialPrivileges[field])} onChange={(e) => setSpecialPrivileges((current) => ({ ...current, [field]: e.target.checked }))} />
+                  {label}
+                </label>)}
               </div>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginTop: '0.5rem' }}>
@@ -694,6 +727,14 @@ const Control = () => {
                   <input type="checkbox" checked={hasActivityPrivilege} onChange={(e) => setHasActivityPrivilege(e.target.checked)} />
                   Activities & Events administrative privilege
                 </label>
+                <label style={{ display: 'flex', gap: '0.6rem', alignItems: 'center' }}>
+                  <input type="checkbox" checked={hasControlPrivilege} onChange={(e) => setHasControlPrivilege(e.target.checked)} />
+                  Control & Access administrative privilege
+                </label>
+                {visibleSpecialPrivilegeOptions.map(([field, label]) => <label key={field} style={{ display: 'flex', gap: '0.6rem', alignItems: 'center' }}>
+                  <input type="checkbox" checked={Boolean(specialPrivileges[field])} onChange={(e) => setSpecialPrivileges((current) => ({ ...current, [field]: e.target.checked }))} />
+                  {label}
+                </label>)}
               </div>
             </div>
             <div style={{ fontWeight: 700, fontSize: '0.8rem', textTransform: 'uppercase', color: 'var(--text-secondary)' }}>Additional Finance Permission</div>

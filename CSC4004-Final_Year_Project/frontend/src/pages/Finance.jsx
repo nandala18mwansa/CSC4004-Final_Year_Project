@@ -96,7 +96,9 @@ const Badge=({value})=><span className={`badge badge-${String(value).toLowerCase
 export default function Finance(){
   const { user }=useContext(AuthContext);
   const privileged=Boolean(user?.is_superuser||user?.has_finance_privilege);
+  const canCreateDirectExpense=Boolean(user?.is_superuser||(user?.role==='ADMIN'&&user?.has_finance_privilege));
   const [tab,setTab]=useState('overview'); const [loading,setLoading]=useState(true); const [saving,setSaving]=useState(false); const [error,setError]=useState(''); const [infoMessage,setInfoMessage]=useState('');
+  useEffect(()=>{if(!privileged)return;const requested=new URLSearchParams(window.location.search).get('section');if(['overview','expenses','budgets','income','ledger','reports','requests'].includes(requested))setTab(requested);},[privileged]);
   const [expenses,setExpenses]=useState([]); const [budgets,setBudgets]=useState([]); const [transactions,setTransactions]=useState([]); const [incomeRecords,setIncomeRecords]=useState([]); const [reports,setReports]=useState([]); const [notifications,setNotifications]=useState([]); const [dashboard,setDashboard]=useState(null);
   const [modal,setModal]=useState(null); const [selected,setSelected]=useState(null);
   const [isRejecting, setIsRejecting] = useState(false);
@@ -320,7 +322,7 @@ export default function Finance(){
   if(loading)return <div className="page-container"><div className="empty-state"><div className="spinner spinner-lg"/><p>Loading finance center...</p></div></div>;
   const tabs=privileged?['overview','expenses','budgets','income','ledger','reports','requests']:['overview','expenses','requests','notifications'];
   return <div className="page-container finance-v2">
-    <div className="hubtoll-page-header"><div><div className="hubtoll-module-eyebrow"><span className="hubtoll-module-badge-text">DEPARTMENT FINANCE & BUDGETING</span></div><h1 className="page-title">{privileged?'Department Finance & Budgets':'My Finance'}</h1><p className="page-subtitle">{privileged?'Financial control, approvals, ledger and reporting.':'Submit requests and track your financial activity.'}</p></div><div className="finance-actions"><button className="btn btn-secondary" onClick={()=>setModal('expense')}>+ Request Expense</button>{!privileged&&<button className="hubtoll-btn-primary" onClick={()=>setModal('reportRequest')}>Request Financial Report</button>}</div></div>
+    <div className="hubtoll-page-header"><div><div className="hubtoll-module-eyebrow"><span className="hubtoll-module-badge-text">DEPARTMENT FINANCE & BUDGETING</span></div><h1 className="page-title">{privileged?'Department Finance & Budgets':'My Finance'}</h1><p className="page-subtitle">{privileged?'Financial control, approvals, ledger and reporting.':'Submit requests and track your financial activity.'}</p></div><div className="finance-actions"><button className="btn btn-secondary" onClick={()=>setModal('expense')}>{canCreateDirectExpense?'+ Create Expense':'+ Request Expense'}</button>{!privileged&&<button className="hubtoll-btn-primary" onClick={()=>setModal('reportRequest')}>Request Financial Report</button>}</div></div>
     {error&&<div className="hubtoll-alert-banner hubtoll-alert-error"><span>{error}</span></div>}
     {infoMessage&&<div className="hubtoll-alert-banner hubtoll-alert-info"><span>{infoMessage}</span></div>}
     <div className="finance-tabs">{tabs.map(t=><button key={t} className={tab===t?'active':''} onClick={()=>setTab(t)}>{t[0].toUpperCase()+t.slice(1)}{t==='notifications'&&unread>0?` (${unread})`:''}</button>)}</div>
@@ -602,7 +604,7 @@ export default function Finance(){
 
     {tab==='overview'&&!privileged&&<><div className="finance-kpis"><div><span>My Pending</span><strong>{expenses.filter(e=>e.status==='PENDING').length}</strong></div><div><span>My Approved</span><strong>{expenses.filter(e=>e.status==='APPROVED').length}</strong></div><div><span>My Rejected</span><strong>{expenses.filter(e=>e.status==='REJECTED').length}</strong></div><div><span>Unread Notifications</span><strong>{unread}</strong></div></div><section className="hubtoll-card finance-panel"><div className="finance-panel-head"><h3>Recent Requests</h3><button onClick={()=>setTab('expenses')}>View history</button></div>{expenses.slice(0,5).map(e=><div className="compact-row" key={e.id}><div><strong>{e.reference}</strong><small>{e.description}</small></div><span>{money(e.amount)}</span><Badge value={e.status}/></div>)}</section></>}
 
-    {tab==='expenses'&&<section className="hubtoll-card finance-panel"><div className="finance-panel-head"><h3>{privileged?'Expense Management':'My Expense Requests'}</h3><button className="hubtoll-btn-primary" onClick={()=>setModal('expense')}>+ Request Expense</button></div><div className="finance-filters"><input placeholder="Search reference, description or requester" value={search} onChange={e=>setSearch(e.target.value)}/><select value={filterStatus} onChange={e=>setFilterStatus(e.target.value)}><option value="">All statuses</option><option>PENDING</option><option>APPROVED</option><option>REJECTED</option></select><input type="date" value={expenseStart} onChange={e=>setExpenseStart(e.target.value)} title="From date"/><input type="date" value={expenseEnd} onChange={e=>setExpenseEnd(e.target.value)} title="To date"/><button type="button" className="btn-filter-clear" onClick={()=>{setSearch('');setFilterStatus('');setExpenseStart('');setExpenseEnd('');}}>Clear Filters</button></div><div className="table-wrap"><table className="finance-table"><thead><tr><th>Reference</th>{privileged&&<th>Requester</th>}<th>Description</th><th>Budget</th><th>Amount</th><th>Date</th><th>Status</th><th>Feedback</th>{privileged&&<th>Action</th>}</tr></thead><tbody>{filteredExpenses.map(e=><tr key={e.id}><td>{e.reference}</td>{privileged&&<td>{e.requested_by_username}</td>}<td>{e.description}</td><td>{e.budget_department||'Unassigned'}</td><td>{money(e.amount)}</td><td>{day(e.date_requested)}</td><td><Badge value={e.status}/></td><td>{e.rejection_reason||'—'}</td>{privileged&&<td>{e.status==='PENDING'?<button onClick={()=>{setSelected(e);setBudgetId(e.budget||'');setReason('');setIsRejecting(false);setProcessingAction('');setModal('expenseDecision');}}>Review</button>:'—'}</td>}</tr>)}</tbody></table></div></section>}
+    {tab==='expenses'&&<section className="hubtoll-card finance-panel"><div className="finance-panel-head"><h3>{privileged?'Expense Management':'My Expense Requests'}</h3><button className="hubtoll-btn-primary" onClick={()=>setModal('expense')}>{privileged?'+ Create Expense':'+ Request Expense'}</button></div><div className="finance-filters"><input placeholder="Search reference, description or requester" value={search} onChange={e=>setSearch(e.target.value)}/><select value={filterStatus} onChange={e=>setFilterStatus(e.target.value)}><option value="">All statuses</option><option>PENDING</option><option>APPROVED</option><option>REJECTED</option></select><input type="date" value={expenseStart} onChange={e=>setExpenseStart(e.target.value)} title="From date"/><input type="date" value={expenseEnd} onChange={e=>setExpenseEnd(e.target.value)} title="To date"/><button type="button" className="btn-filter-clear" onClick={()=>{setSearch('');setFilterStatus('');setExpenseStart('');setExpenseEnd('');}}>Clear Filters</button></div><div className="table-wrap"><table className="finance-table"><thead><tr><th>Reference</th>{privileged&&<th>Requester</th>}<th>Description</th><th>Budget</th><th>Amount</th><th>Date</th><th>Status</th><th>Feedback</th>{privileged&&<th>Action</th>}</tr></thead><tbody>{filteredExpenses.map(e=><tr key={e.id}><td>{e.reference}</td>{privileged&&<td>{e.requested_by_username}</td>}<td>{e.description}</td><td>{e.budget_department||'Unassigned'}</td><td>{money(e.amount)}</td><td>{day(e.date_requested)}</td><td><Badge value={e.status}/></td><td>{e.rejection_reason||'—'}</td>{privileged&&<td>{e.status==='PENDING'?<button onClick={()=>{setSelected(e);setBudgetId(e.budget||'');setReason('');setIsRejecting(false);setProcessingAction('');setModal('expenseDecision');}}>Review</button>:'—'}</td>}</tr>)}</tbody></table></div></section>}
 
     {tab==='budgets'&&privileged&&(
       <>
@@ -1443,7 +1445,7 @@ export default function Finance(){
       <Modal
         isOpen={modal === 'expense'}
         onClose={reset}
-        title="Request Expense"
+        title={canCreateDirectExpense ? 'Create Expense' : 'Request Expense'}
         footer={
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', width: '100%' }}>
             <button
@@ -1458,10 +1460,10 @@ export default function Finance(){
               type="button"
               className="hubtoll-btn-primary"
               style={{ padding: '0.6rem 1.4rem', borderRadius: '8px', fontWeight: 600, fontSize: '0.875rem' }}
-              disabled={saving || !description.trim() || !amount}
+              disabled={saving || !description.trim() || !amount || (canCreateDirectExpense && !budgetId)}
               onClick={createExpense}
             >
-              {saving ? 'Submitting...' : 'Submit Request'}
+              {saving ? (canCreateDirectExpense ? 'Creating...' : 'Submitting...') : (canCreateDirectExpense ? 'Create Expense' : 'Submit Request')}
             </button>
           </div>
         }
@@ -1496,7 +1498,7 @@ export default function Finance(){
             </div>
 
             <div className="form-group" style={{ margin: 0 }}>
-              <label className="form-label">Budget Category {privileged ? '' : '(Optional)'}</label>
+              <label className="form-label">Budget Category {privileged ? '*' : '(Optional)'}</label>
               <select
                 className="form-select"
                 style={{ width: '100%' }}

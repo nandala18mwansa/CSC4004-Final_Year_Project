@@ -76,6 +76,8 @@ const moduleList = [
       </svg>
     ),
   },
+  { id: 'announcements', name: 'Announcements', path: '/announcements', badge: 'Department Updates', iconColor: '#0891b2' },
+  { id: 'developer', name: 'Developer Options', path: '/developer-options', badge: 'Restricted Maintenance', iconColor: '#64748b', hasPrivilege: 'has_developer_options' },
 ];
 
 const NOTIF_TYPE_COLORS = {
@@ -176,14 +178,16 @@ const Topbar = ({ sidebarCollapsed, onToggleSidebar }) => {
   const profileRef = useRef(null);
   const notifRef = useRef(null);
 
-  const allowedModules = moduleList.filter((m) => !m.adminOnly || user?.role === 'ADMIN');
-  const effectiveRole = user?.has_finance_privilege || user?.has_resource_privilege || user?.has_activity_privilege
+  const canAccessControl = Boolean(user?.is_superuser || user?.has_control_privilege);
+  const allowedModules = moduleList.filter((m) => (!m.adminOnly || canAccessControl) && (!m.hasPrivilege || user?.is_superuser || user?.[m.hasPrivilege]) && (!m.hasAnyPrivilege || user?.is_superuser || m.hasAnyPrivilege.some((field) => user?.[field])));
+  const effectiveRole = user?.has_finance_privilege || user?.has_resource_privilege || user?.has_activity_privilege || canAccessControl
     ? [
         user?.has_finance_privilege ? 'Finance' : null,
         user?.has_resource_privilege ? 'Resources' : null,
         user?.has_activity_privilege ? 'Activities' : null,
+        canAccessControl ? 'Control' : null,
       ].filter(Boolean).join(' + ')
-    : (user?.role === 'ADMIN' ? 'Control' : 'Staff');
+    : 'Staff';
 
   // Active module title
   const activeModuleTitle = (() => {
@@ -528,7 +532,7 @@ const Topbar = ({ sidebarCollapsed, onToggleSidebar }) => {
               </div>
 
               <div className="hubtoll-profile-actions">
-                {user?.role === 'ADMIN' && (
+                {canAccessControl && (
                   <button
                     type="button"
                     className="hubtoll-profile-menu-item"

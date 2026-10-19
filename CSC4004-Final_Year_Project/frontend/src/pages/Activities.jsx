@@ -371,6 +371,7 @@ const Activities = () => {
   const [dashboard, setDashboard] = useState(emptyDashboard);
   const [activityTotal, setActivityTotal] = useState(0);
   const [activityTypes, setActivityTypes] = useState([]);
+  const [resources, setResources] = useState([]);
   const [users, setUsers] = useState([]);
   const [recipientGroups, setRecipientGroups] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -387,6 +388,7 @@ const Activities = () => {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [activityTypeId, setActivityTypeId] = useState('');
+  const [resourceIds, setResourceIds] = useState([]);
   const [location, setLocation] = useState('');
   const [meetingMode, setMeetingMode] = useState('PHYSICAL');
   const [meetingPlatform, setMeetingPlatform] = useState('');
@@ -455,12 +457,13 @@ const Activities = () => {
         if (dateToFilter) activityParams.date_to = dateToFilter;
       }
 
-      const [dashRes, actRes, typesRes, userRes, groupRes] = await Promise.all([
+      const [dashRes, actRes, typesRes, userRes, groupRes, resourceRes] = await Promise.all([
         api.get('activities/dashboard/'),
         api.get('activities/', { params: activityParams }),
         api.get('activity-types/?all=true'),
         api.get('users/'),
         api.get('recipient-groups/?all=true').catch(() => ({ data: [] })),
+        api.get('resources/?page_size=100').catch(() => ({ data: [] })),
       ]);
       setDashboard({ ...emptyDashboard, ...(dashRes.data || {}) });
       setActivities(pageRows(actRes.data));
@@ -468,6 +471,7 @@ const Activities = () => {
       setActivityTypes(typesRes.data);
       setUsers(userRes.data);
       setRecipientGroups(groupRes.data);
+      setResources(Array.isArray(resourceRes.data) ? resourceRes.data : (resourceRes.data?.results || []));
     } catch (err) {
       setError('Unable to fetch activities data.');
     } finally {
@@ -531,6 +535,7 @@ const Activities = () => {
     const firstActive = activityTypes.find((t) => t.is_active);
     setActivityTypeId(firstActive ? firstActive.id : '');
     setLocation('');
+    setResourceIds([]);
     setMeetingMode('PHYSICAL');
     setMeetingPlatform('');
     setMeetingLink('');
@@ -557,6 +562,7 @@ const Activities = () => {
     setDescription(act.description || '');
     setActivityTypeId(act.activity_type || '');
     setLocation(act.location || '');
+    setResourceIds((act.resource_summary || []).filter((item) => item.status === 'PENDING' || item.status === 'APPROVED').map((item) => Number(item.id)));
     setMeetingMode(act.meeting_mode || 'PHYSICAL');
     setMeetingPlatform(act.meeting_platform || '');
     setMeetingLink(act.meeting_link || '');
@@ -616,6 +622,7 @@ const Activities = () => {
     description: description.trim(),
     activity_type: activityTypeId || null,
     location: location.trim(),
+    resource_ids: resourceIds,
     meeting_mode: meetingMode,
     meeting_platform: meetingMode === 'PHYSICAL' ? '' : meetingPlatform,
     meeting_link: meetingMode === 'PHYSICAL' ? '' : meetingLink.trim(),
@@ -981,6 +988,24 @@ const Activities = () => {
             onChange={(e) => setEndDate(e.target.value)}
             required
           />
+        </div>
+
+        <div className="form-group" style={{ gridColumn: 'span 2' }}>
+          <label className="form-label" style={{ fontWeight: 600 }}>Reserve resources</label>
+          <small style={{ display: 'block', marginBottom: 8, color: 'var(--text-secondary)' }}>Selecting a room also reserves resources assigned to that room.</small>
+          <div style={{ border: '1px solid var(--border-color, #e2e8f0)', borderRadius: 8, padding: 10, maxHeight: 180, overflowY: 'auto' }}>
+            {resources.filter((resource) => !['UNAVAILABLE', 'MAINTENANCE', 'UNDER_REPAIR', 'RETIRED'].includes(resource.status) && !['DAMAGED', 'UNDER_REPAIR'].includes(resource.condition)).length === 0 ? (
+              <span style={{ color: 'var(--text-secondary)', fontSize: 13 }}>No reservable resources are available.</span>
+            ) : resources.filter((resource) => !['UNAVAILABLE', 'MAINTENANCE', 'UNDER_REPAIR', 'RETIRED'].includes(resource.status) && !['DAMAGED', 'UNDER_REPAIR'].includes(resource.condition)).map((resource) => {
+              const selected = resourceIds.includes(Number(resource.id));
+              return <label key={resource.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 2px', cursor: 'pointer' }}>
+                <input type="checkbox" checked={selected} onChange={() => setResourceIds((current) => selected ? current.filter((id) => id !== Number(resource.id)) : [...current, Number(resource.id)])} />
+                <span style={{ flex: 1 }}>{resource.name} <small style={{ color: 'var(--text-secondary)' }}>{resource.category_name || resource.category || 'Resource'} · {resource.location || 'Location not set'} · {resource.is_portable ? 'Portable' : 'Non-portable'}</small></span>
+                <small style={{ color: 'var(--text-secondary)' }}>{resource.status?.replaceAll('_', ' ')}</small>
+              </label>;
+            })}
+          </div>
+          <small style={{ color: 'var(--text-secondary)' }}>After approval, portable assets show as Booked and fixed assets show as In Use until the reservation is released.</small>
         </div>
 
         {/* Description / Agenda */}

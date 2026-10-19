@@ -1,3 +1,4 @@
+import logging
 import re
 from datetime import timezone as dt_timezone
 
@@ -8,6 +9,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from django.conf import settings
+from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
 from django.utils.dateparse import parse_date
@@ -17,6 +19,10 @@ from users.models import User
 from users.notifications import notify_user, notify_users
 from .models import Activity, ActivityType
 from .serializers import ActivitySerializer, ActivityTypeSerializer
+from resources.models import Allocation, Resource
+from resources.services import synchronize_reservation_status
+
+logger = logging.getLogger(__name__)
 
 
 # ── ActivityType ViewSet ─────────────────────────────────────────────
@@ -258,11 +264,11 @@ def _dispatch_notifications(activity, method='REQUEST', extra_message=''):
 
     # Email only for external participants
     if external_emails and activity.send_email_reminders:
-        try:
-            from django.core.mail import EmailMultiAlternatives
-            subject = f"[DMS] {notif_title}"
-            body = notif_message
-            for ext_email in external_emails:
+        from django.core.mail import EmailMultiAlternatives
+        subject = f"[DMS] {notif_title}"
+        body = notif_message
+        for ext_email in external_emails:
+            try:
                 msg = EmailMultiAlternatives(
                     subject=subject,
                     body=body,
@@ -270,9 +276,11 @@ def _dispatch_notifications(activity, method='REQUEST', extra_message=''):
                     to=[ext_email],
                 )
                 msg.attach(ics_filename, ics_content, f'text/calendar; method={method}; charset=UTF-8')
-                msg.send(fail_silently=True)
-        except Exception:
-            pass
+                sent = msg.send(fail_silently=False)
+                if not sent:
+                    logger.warning('DMS external activity email returned zero messages; backend=%s', settings.EMAIL_BACKEND)
+            except Exception as exc:
+                logger.warning('DMS external activity email failed (%s): %s', type(exc).__name__, exc)
 
 
 # ── Activity ViewSet ─────────────────────────────────────────────────
@@ -294,7 +302,7 @@ def _notify_activity_reviewers(activity):
     )
 
 class ActivityViewSet(viewsets.ModelViewSet):
-    queryset = Activity.objects.all().select_related('activity_type', 'organizer').prefetch_related('participants', 'recipient_groups', 'participant_categories').order_by('start_date')
+    queryset = Activity.objects.all().select_related('activity_type', 'organizer').prefetch_related('participants', 'recipient_groups', 'participant_categories', 'resource_allocations__resource__category').order_by('start_date')
     serializer_class = ActivitySerializer
     permission_classes = [IsAuthenticated, IsActivityPrivilegedOrReadOnly, IsOwnerOrAdminOrManager]
     pagination_class = ActivityPagination
@@ -349,7 +357,7 @@ class ActivityViewSet(viewsets.ModelViewSet):
             queryset = queryset.filter(start_date__gte=timezone.now()).exclude(status__in=['CANCELLED', 'REJECTED', 'COMPLETED'])
         if ordering not in {'start_date', '-start_date', 'created_at', '-created_at', 'title', '-title'}:
             ordering = 'start_date'
-        return queryset.distinct().select_related('activity_type', 'organizer').prefetch_related('participants', 'recipient_groups', 'participant_categories').order_by(ordering)
+        return queryset.distinct().select_related('activity_type', 'organizer').prefetch_related('participants', 'recipient_groups', 'participant_categories', 'resource_allocations__resource__category').order_by(ordering)
 
     @action(detail=False, methods=['get'], url_path='dashboard')
     def dashboard(self, request):
@@ -366,18 +374,63 @@ class ActivityViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         is_admin_scheduler = has_activity_privilege(self.request.user)
-        activity = serializer.save(
-            organizer=self.request.user,
-            submitted_by=self.request.user,
-            approval_status='APPROVED' if is_admin_scheduler else 'PENDING',
-            status='SCHEDULED' if is_admin_scheduler else 'PENDING_APPROVAL',
-            reviewed_by=self.request.user if is_admin_scheduler else None,
-            reviewed_at=timezone.now() if is_admin_scheduler else None,
-        )
+        requested_resources = list(serializer.validated_data.get('resource_ids', []))
+        with transaction.atomic():
+            activity = serializer.save(
+                organizer=self.request.user,
+                submitted_by=self.request.user,
+                approval_status='APPROVED' if is_admin_scheduler else 'PENDING',
+                status='SCHEDULED' if is_admin_scheduler else 'PENDING_APPROVAL',
+                reviewed_by=self.request.user if is_admin_scheduler else None,
+                reviewed_at=timezone.now() if is_admin_scheduler else None,
+            )
+            self._save_activity_resources(activity, requested_resources, self.request.user, is_admin_scheduler)
         if is_admin_scheduler:
             _dispatch_notifications(activity, method='REQUEST')
         else:
             _notify_activity_reviewers(activity)
+
+    def _save_activity_resources(self, activity, resources, actor, approved):
+        if not resources:
+            return
+        selected_ids = [resource.pk for resource in resources]
+        if len(selected_ids) != len(set(selected_ids)):
+            raise ValidationError({'resource_ids': 'Choose each resource only once.'})
+        expanded_ids = set(selected_ids)
+        frontier = set(selected_ids)
+        while frontier:
+            attached_ids = set(Resource.objects.filter(
+                assigned_room_id__in=frontier,
+            ).exclude(pk__in=expanded_ids).values_list('pk', flat=True))
+            expanded_ids.update(attached_ids)
+            frontier = attached_ids
+        ids = sorted(expanded_ids)
+        locked_resources = list(Resource.objects.select_for_update().filter(pk__in=ids).order_by('pk'))
+        if len(locked_resources) != len(ids):
+            raise ValidationError({'resource_ids': 'One or more selected resources no longer exist.'})
+        for resource in locked_resources:
+            if resource.status in {'UNAVAILABLE', 'MAINTENANCE', 'UNDER_REPAIR', 'RETIRED'} or resource.condition in {'DAMAGED', 'UNDER_REPAIR'}:
+                raise ValidationError({'resource_ids': f'{resource.name} is not available for reservation.'})
+            conflict = Allocation.objects.filter(
+                resource=resource, status__in=['PENDING', 'APPROVED'],
+                start_time__lt=activity.end_date, end_time__gt=activity.start_date,
+            ).exclude(activity=activity).exists()
+            if conflict:
+                raise ValidationError({'resource_ids': f'{resource.name} has a conflicting reservation.'})
+        Allocation.objects.bulk_create([
+            Allocation(
+                resource=resource, allocated_to=activity.organizer, activity=activity,
+                start_time=activity.start_date, end_time=activity.end_date,
+                purpose=activity.title, status='APPROVED' if approved else 'PENDING',
+                reviewed_by=actor if approved else None, reviewed_at=timezone.now() if approved else None,
+            ) for resource in locked_resources
+        ])
+        if approved:
+            for resource in locked_resources:
+                synchronize_reservation_status(
+                    resource, actor=actor,
+                    notes=f'Approved reservation for activity "{activity.title}".',
+                )
 
     def perform_update(self, serializer):
         old = self.get_object()
@@ -386,9 +439,35 @@ class ActivityViewSet(viewsets.ModelViewSet):
         new_start = serializer.validated_data.get('start_date', old.start_date)
         new_end = serializer.validated_data.get('end_date', old.end_date)
         is_reschedule = (new_start != old.start_date or new_end != old.end_date)
+        requested_status = serializer.validated_data.get('status', old.status)
 
         new_seq = old.sequence + 1
-        activity = serializer.save(sequence=new_seq)
+        requested_resources = list(serializer.validated_data.get('resource_ids', []))
+        with transaction.atomic():
+            previously_reserved_ids = set(old.resource_allocations.filter(
+                status__in=['PENDING', 'APPROVED'],
+            ).values_list('resource_id', flat=True))
+            activity = serializer.save(sequence=new_seq)
+            if requested_status in {'COMPLETED', 'CANCELLED', 'REJECTED'}:
+                activity.resource_allocations.filter(status__in=['PENDING', 'APPROVED']).update(status='CANCELLED')
+            if requested_status not in {'COMPLETED', 'CANCELLED', 'REJECTED'} and (
+                is_reschedule or 'resource_ids' in serializer.initial_data
+            ):
+                existing = list(activity.resource_allocations.filter(status__in=['PENDING', 'APPROVED']).values_list('resource_id', flat=True))
+                selected = [resource.pk for resource in requested_resources] if 'resource_ids' in serializer.initial_data else existing
+                activity.resource_allocations.filter(status__in=['PENDING', 'APPROVED']).update(status='CANCELLED')
+                resources = list(Resource.objects.filter(pk__in=selected))
+                self._save_activity_resources(activity, resources, self.request.user, activity.approval_status == 'APPROVED')
+            current_resource_ids = set(activity.resource_allocations.filter(
+                status__in=['PENDING', 'APPROVED'],
+            ).values_list('resource_id', flat=True))
+            for resource in Resource.objects.select_for_update().filter(
+                pk__in=previously_reserved_ids | current_resource_ids,
+            ).order_by('pk'):
+                synchronize_reservation_status(
+                    resource, actor=self.request.user,
+                    notes=f'Reconciled reservation status for activity "{activity.title}".',
+                )
 
         if activity.approval_status != 'APPROVED':
             _notify_activity_reviewers(activity)
@@ -427,7 +506,14 @@ class ActivityViewSet(viewsets.ModelViewSet):
                 method='CANCEL',
                 extra_message='This activity has been deleted from the Departmental Management System.',
             )
-        instance.delete()
+        with transaction.atomic():
+            resource_ids = list(instance.resource_allocations.filter(
+                status__in=['PENDING', 'APPROVED'],
+            ).values_list('resource_id', flat=True))
+            instance.resource_allocations.filter(status__in=['PENDING', 'APPROVED']).update(status='CANCELLED')
+            for resource in Resource.objects.select_for_update().filter(pk__in=resource_ids).order_by('pk'):
+                synchronize_reservation_status(resource, actor=self.request.user, notes='Activity deleted.')
+            instance.delete()
 
     @action(detail=True, methods=['post'], url_path='cancel')
     def cancel(self, request, pk=None):
@@ -442,6 +528,13 @@ class ActivityViewSet(viewsets.ModelViewSet):
         activity.status = 'CANCELLED'
         activity.sequence += 1
         activity.save(update_fields=['status', 'sequence'])
+        with transaction.atomic():
+            resource_ids = list(activity.resource_allocations.filter(
+                status__in=['PENDING', 'APPROVED'],
+            ).values_list('resource_id', flat=True))
+            activity.resource_allocations.filter(status__in=['PENDING', 'APPROVED']).update(status='CANCELLED')
+            for resource in Resource.objects.select_for_update().filter(pk__in=resource_ids).order_by('pk'):
+                synchronize_reservation_status(resource, actor=request.user, notes=f'Activity cancelled: {reason}')
 
         _dispatch_notifications(activity, method='CANCEL', extra_message=reason)
         return Response(ActivitySerializer(activity).data)
@@ -473,11 +566,27 @@ class ActivityViewSet(viewsets.ModelViewSet):
         if new_end_dt <= new_start_dt:
             return Response({'error': 'end_date must be after start_date.'}, status=400)
 
-        activity.start_date = new_start_dt
-        activity.end_date = new_end_dt
-        activity.status = 'RESCHEDULED'
-        activity.sequence += 1
-        activity.save(update_fields=['start_date', 'end_date', 'status', 'sequence'])
+        with transaction.atomic():
+            allocations = list(activity.resource_allocations.filter(status='APPROVED').select_related('resource'))
+            resources = list(Resource.objects.select_for_update().filter(pk__in=[a.resource_id for a in allocations]).order_by('pk'))
+            for resource in resources:
+                conflict = Allocation.objects.filter(
+                    resource=resource, status__in=['PENDING', 'APPROVED'],
+                    start_time__lt=new_end_dt, end_time__gt=new_start_dt,
+                ).exclude(activity=activity).exists()
+                if conflict or resource.status in {'UNAVAILABLE', 'MAINTENANCE', 'UNDER_REPAIR', 'RETIRED'} or resource.condition in {'DAMAGED', 'UNDER_REPAIR'}:
+                    raise ValidationError({'resource_ids': f'{resource.name} is not available for the revised schedule.'})
+            activity.start_date = new_start_dt
+            activity.end_date = new_end_dt
+            activity.status = 'RESCHEDULED'
+            activity.sequence += 1
+            activity.save(update_fields=['start_date', 'end_date', 'status', 'sequence'])
+            activity.resource_allocations.filter(status='APPROVED').update(start_time=new_start_dt, end_time=new_end_dt)
+            for resource in resources:
+                synchronize_reservation_status(
+                    resource, actor=request.user,
+                    notes=f'Rescheduled activity "{activity.title}".',
+                )
 
         _dispatch_notifications(activity, method='REQUEST', extra_message=reason or 'Activity has been rescheduled.')
         return Response(ActivitySerializer(activity).data)
@@ -492,20 +601,38 @@ class ActivityViewSet(viewsets.ModelViewSet):
         if activity.approval_status != 'PENDING':
             raise ValidationError({'approval_status': 'Only pending activities can be approved.'})
 
-        activity.approval_status = 'APPROVED'
-        activity.status = 'SCHEDULED'
-        activity.reviewed_by = request.user
-        activity.reviewed_at = timezone.now()
-        activity.rejection_reason = ''
-        activity.sequence += 1
-        activity.save(update_fields=[
-            'approval_status',
-            'status',
-            'reviewed_by',
-            'reviewed_at',
-            'rejection_reason',
-            'sequence',
-        ])
+        with transaction.atomic():
+            activity = Activity.objects.select_for_update().get(pk=activity.pk)
+            if activity.approval_status != 'PENDING':
+                raise ValidationError({'approval_status': 'Only pending activities can be approved.'})
+            pending_allocations = list(activity.resource_allocations.filter(status='PENDING').select_related('resource'))
+            resources = list(Resource.objects.select_for_update().filter(pk__in=[a.resource_id for a in pending_allocations]).order_by('pk'))
+            resource_map = {resource.pk: resource for resource in resources}
+            for allocation in pending_allocations:
+                resource = resource_map[allocation.resource_id]
+                conflict = Allocation.objects.filter(
+                    resource=resource, status__in=['PENDING', 'APPROVED'],
+                    start_time__lt=activity.end_date, end_time__gt=activity.start_date,
+                ).exclude(activity=activity).exists()
+                if conflict or resource.status in {'UNAVAILABLE', 'MAINTENANCE', 'UNDER_REPAIR', 'RETIRED'} or resource.condition in {'DAMAGED', 'UNDER_REPAIR'}:
+                    raise ValidationError({'resource_ids': f'{resource.name} is no longer available for this activity.'})
+            activity.approval_status = 'APPROVED'
+            activity.status = 'SCHEDULED'
+            activity.reviewed_by = request.user
+            activity.reviewed_at = timezone.now()
+            activity.rejection_reason = ''
+            activity.sequence += 1
+            activity.save(update_fields=['approval_status', 'status', 'reviewed_by', 'reviewed_at', 'rejection_reason', 'sequence'])
+            for allocation in pending_allocations:
+                allocation.status = 'APPROVED'
+                allocation.reviewed_by = request.user
+                allocation.reviewed_at = timezone.now()
+                allocation.save(update_fields=['status', 'reviewed_by', 'reviewed_at', 'updated_at'])
+            for resource in resources:
+                synchronize_reservation_status(
+                    resource, actor=request.user,
+                    notes=f'Approved reservation for activity "{activity.title}".',
+                )
 
         notify_user(
             activity.organizer,
@@ -538,6 +665,13 @@ class ActivityViewSet(viewsets.ModelViewSet):
         activity.reviewed_at = timezone.now()
         activity.rejection_reason = reason
         activity.save(update_fields=['approval_status', 'status', 'reviewed_by', 'reviewed_at', 'rejection_reason'])
+        with transaction.atomic():
+            resource_ids = list(activity.resource_allocations.filter(
+                status='PENDING',
+            ).values_list('resource_id', flat=True))
+            activity.resource_allocations.filter(status='PENDING').update(status='REJECTED', reviewed_by=request.user, reviewed_at=timezone.now(), rejection_reason=reason)
+            for resource in Resource.objects.select_for_update().filter(pk__in=resource_ids).order_by('pk'):
+                synchronize_reservation_status(resource, actor=request.user, notes=f'Activity rejected: {reason}')
 
         notify_user(
             activity.organizer,

@@ -6,11 +6,11 @@ from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
-from rest_framework.exceptions import PermissionDenied
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.pagination import PageNumberPagination
 from django.core.files.base import ContentFile
 from django.db import IntegrityError, transaction
-from django.db.models import ProtectedError
+from django.db.models import ProtectedError, Exists, OuterRef
 from django.http import HttpResponse, FileResponse
 from django.utils import timezone
 from django.utils.dateparse import parse_date
@@ -22,6 +22,7 @@ from .models import (
     ResourceReportRequest,
 )
 from .serializers import ResourceSerializer, ResourceCategorySerializer, AllocationSerializer, ResourceReportRequestSerializer
+from .services import synchronize_reservation_status
 from users.models import User
 from users.notifications import notify_user, notify_users
 
@@ -150,10 +151,21 @@ class ResourceViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         user = self.request.user
-        queryset = super().get_queryset()
+        now = timezone.now()
+        active_reservations = Allocation.objects.filter(
+            resource_id=OuterRef('pk'), status='APPROVED', end_time__gt=now,
+        )
+        queryset = super().get_queryset().annotate(has_active_reservation=Exists(active_reservations))
         if has_resource_privilege(user):
             return queryset
         return queryset
+
+    def create(self, request, *args, **kwargs):
+        if not has_resource_privilege(request.user):
+            category = ResourceCategory.objects.filter(pk=request.data.get('category'), manager=request.user).first()
+            if not category:
+                raise PermissionDenied('Resources & Assets privilege required.')
+        return super().create(request, *args, **kwargs)
 
     def perform_create(self, serializer):
         category = serializer.validated_data.get('category')
@@ -165,7 +177,12 @@ class ResourceViewSet(viewsets.ModelViewSet):
         category = serializer.validated_data.get('category') or self.get_object().category
         if not can_manage_resource_category(self.request.user, category):
             raise PermissionDenied("You can only manage resources under categories assigned to you.")
-        serializer.save()
+        with transaction.atomic():
+            resource = serializer.save()
+            synchronize_reservation_status(
+                resource, actor=self.request.user,
+                notes='Reconciled resource details with approved reservations.',
+            )
 
     def perform_destroy(self, instance):
         if not can_manage_resource_category(self.request.user, instance.category):
@@ -722,17 +739,23 @@ class ResourceViewSet(viewsets.ModelViewSet):
                 status=400,
             )
 
-        previous = resource.status
-        if previous != new_status:
-            ResourceStatusHistory.objects.create(
-                resource=resource,
-                previous_status=previous,
-                new_status=new_status,
-                changed_by=request.user,
-                notes=notes,
+        with transaction.atomic():
+            resource = Resource.objects.select_for_update().get(pk=resource.pk)
+            previous = resource.status
+            if previous != new_status:
+                ResourceStatusHistory.objects.create(
+                    resource=resource,
+                    previous_status=previous,
+                    new_status=new_status,
+                    changed_by=request.user,
+                    notes=notes,
+                )
+                resource.status = new_status
+                resource.save(update_fields=['status'])
+            synchronize_reservation_status(
+                resource, actor=request.user,
+                notes=notes or 'Reconciled manual status with approved reservations.',
             )
-            resource.status = new_status
-            resource.save(update_fields=['status'])
 
         affected = 0
         if new_status != 'AVAILABLE':
@@ -744,7 +767,7 @@ class ResourceViewSet(viewsets.ModelViewSet):
         return Response({
             'resource': ResourceSerializer(resource).data,
             'previous_status': previous,
-            'new_status': new_status,
+            'new_status': resource.status,
             'affected_future_bookings': affected,
         })
 
@@ -860,7 +883,20 @@ class AllocationViewSet(viewsets.ModelViewSet):
                     allocated_to = User.objects.get(id=allocated_to_id)
             except User.DoesNotExist:
                 pass
-        booking = serializer.save(allocated_to=allocated_to, status='PENDING')
+        with transaction.atomic():
+            resource = serializer.validated_data['resource']
+            resource = Resource.objects.select_for_update().get(pk=resource.pk)
+            synchronize_reservation_status(resource, actor=self.request.user)
+            if resource.status in {'UNAVAILABLE', 'MAINTENANCE', 'UNDER_REPAIR', 'RETIRED'} or resource.condition in {'UNDER_REPAIR', 'DAMAGED'}:
+                raise ValidationError({'resource': 'This resource is no longer available for booking.'})
+            conflict = Allocation.objects.filter(
+                resource=resource, status__in=['PENDING', 'APPROVED'],
+                start_time__lt=serializer.validated_data['end_time'],
+                end_time__gt=serializer.validated_data['start_time'],
+            ).exists()
+            if conflict:
+                raise ValidationError({'resource': 'This resource already has a pending or approved reservation for the selected time.'})
+            booking = serializer.save(allocated_to=allocated_to, status='PENDING')
         reviewers = _resource_reviewers().exclude(id=booking.allocated_to_id)
         notify_users(
             recipients=reviewers,
@@ -881,26 +917,31 @@ class AllocationViewSet(viewsets.ModelViewSet):
     def approve(self, request, pk=None):
         booking = self.get_object()
         self._require_resource_reviewer(booking)
-        if booking.status != 'PENDING':
-            return Response({'detail': 'Only pending bookings can be approved.'}, status=400)
-        if booking.resource.status != 'AVAILABLE':
-            return Response({'resource': 'This resource is no longer available for booking.'}, status=400)
-        if booking.resource.condition in {'UNDER_REPAIR', 'DAMAGED'}:
-            return Response({'resource': 'This resource condition does not allow booking.'}, status=400)
-        conflict = Allocation.objects.filter(
-            resource=booking.resource,
-            status='APPROVED',
-            start_time__lt=booking.end_time,
-            end_time__gt=booking.start_time,
-        ).exclude(pk=booking.pk).exists()
-        if conflict:
-            return Response({'resource': 'This resource already has an approved booking for the selected time.'}, status=400)
-
-        booking.status = 'APPROVED'
-        booking.reviewed_by = request.user
-        booking.reviewed_at = timezone.now()
-        booking.rejection_reason = ''
-        booking.save(update_fields=['status', 'reviewed_by', 'reviewed_at', 'rejection_reason', 'updated_at'])
+        with transaction.atomic():
+            booking = Allocation.objects.select_for_update().select_related('resource').get(pk=booking.pk)
+            resource = Resource.objects.select_for_update().get(pk=booking.resource_id)
+            if booking.status != 'PENDING':
+                return Response({'detail': 'Only pending bookings can be approved.'}, status=400)
+            synchronize_reservation_status(resource, actor=request.user)
+            if resource.status in {'UNAVAILABLE', 'MAINTENANCE', 'UNDER_REPAIR', 'RETIRED'}:
+                return Response({'resource': 'This resource is no longer available for booking.'}, status=400)
+            if resource.condition in {'UNDER_REPAIR', 'DAMAGED'}:
+                return Response({'resource': 'This resource condition does not allow booking.'}, status=400)
+            conflict = Allocation.objects.filter(
+                resource=resource, status__in=['PENDING', 'APPROVED'],
+                start_time__lt=booking.end_time, end_time__gt=booking.start_time,
+            ).exclude(pk=booking.pk).exists()
+            if conflict:
+                return Response({'resource': 'This resource already has a pending or approved reservation for the selected time.'}, status=400)
+            booking.status = 'APPROVED'
+            booking.reviewed_by = request.user
+            booking.reviewed_at = timezone.now()
+            booking.rejection_reason = ''
+            booking.save(update_fields=['status', 'reviewed_by', 'reviewed_at', 'rejection_reason', 'updated_at'])
+            synchronize_reservation_status(
+                resource, actor=request.user,
+                notes=f'Approved direct booking for "{resource.name}".',
+            )
         notify_user(
             booking.allocated_to,
             title='Resource booking approved',
@@ -910,6 +951,16 @@ class AllocationViewSet(viewsets.ModelViewSet):
             send_email=True,
         )
         return Response(AllocationSerializer(booking).data)
+
+    def perform_destroy(self, instance):
+        with transaction.atomic():
+            booking = Allocation.objects.select_for_update().get(pk=instance.pk)
+            resource = Resource.objects.select_for_update().get(pk=booking.resource_id)
+            booking.delete()
+            synchronize_reservation_status(
+                resource, actor=self.request.user,
+                notes=f'Removed resource booking for "{resource.name}".',
+            )
 
     @action(detail=True, methods=['post'])
     def reject(self, request, pk=None):
@@ -956,10 +1007,13 @@ class ResourceReportRequestViewSet(viewsets.ModelViewSet):
         notify_users(
             recipients=reviewers,
             title='New resource report request',
-            message=f'{self.request.user.username} requested {request_obj.get_report_type_display()} ({request_obj.report_format}).',
+            message=(
+                f'{self.request.user.username} submitted resource report {request_obj.reference}: '
+                f'{request_obj.get_report_type_display()} ({request_obj.report_format}).'
+            ),
             notification_type='GENERAL',
             link='/resources',
-            send_email=False,
+            send_email=True,
         )
 
     def perform_update(self, serializer):

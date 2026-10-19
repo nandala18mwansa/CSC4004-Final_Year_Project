@@ -40,7 +40,9 @@ def notify_user(
             from_email = getattr(settings, "DEFAULT_FROM_EMAIL", "noreply@department.local")
             email_msg = EmailMultiAlternatives(
                 subject=f"[DMS] {title}",
-                body=f"Hello {recipient.username},\n\n{message}\n\nDepartmental Management System (DMS)",
+                body=(f"Hello {recipient.username},\n\n{message}\n\n"
+                      f"{settings.FRONTEND_URL.rstrip('/') + link if link and getattr(settings, 'FRONTEND_URL', '') else ''}\n\n"
+                      "Departmental Management System (DMS)"),
                 from_email=from_email,
                 to=[recipient.email],
             )
@@ -50,9 +52,13 @@ def notify_user(
                     ics_content,
                     f"text/calendar; method={ics_method}; charset=UTF-8",
                 )
-            email_msg.send(fail_silently=True)
+            # Catch errors here so failed delivery is logged without interrupting
+            # the activity/finance action or losing its in-app notification.
+            sent = email_msg.send(fail_silently=False)
+            if not sent:
+                logger.warning('DMS email delivery returned zero messages; backend=%s', settings.EMAIL_BACKEND)
         except Exception as e:
-            logger.warning(f"DMS email delivery failed for user {recipient.username} ({recipient.email}): {e}")
+            logger.warning('DMS email delivery failed (%s): %s', type(e).__name__, e)
 
     return notif
 

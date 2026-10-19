@@ -886,7 +886,7 @@ const Resources = () => {
                   </td>
                   <td style={{ padding: '9px 12px', fontSize: '13px', color: 'var(--text-secondary)' }}>{categoryMap[r.category] || r.category_name || '—'}</td>
                   <td style={{ padding: '9px 12px' }}>
-                    <span className={STATUS_BADGE[r.status]?.cls || 'badge'}>{STATUS_BADGE[r.status]?.label || r.status}</span>
+                    <span className={STATUS_BADGE[r.effective_status || r.status]?.cls || 'badge'}>{STATUS_BADGE[r.effective_status || r.status]?.label || r.effective_status || r.status}</span>
                   </td>
                   <td style={{ padding: '9px 12px' }}><ConditionBadge condition={r.condition || 'GOOD'} /></td>
                   <td style={{ padding: '9px 12px', fontSize: '12px', color: 'var(--text-secondary)', maxWidth: '140px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -1402,7 +1402,7 @@ const Resources = () => {
           {/* Summary */}
           <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', marginBottom: '16px', padding: '12px', background: 'rgba(255,255,255,0.03)', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
             <div><div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Condition</div><ConditionBadge condition={drawerResource.condition || 'GOOD'} /></div>
-            <div><div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Status</div><span className={STATUS_BADGE[drawerResource.status]?.cls || 'badge'}>{STATUS_BADGE[drawerResource.status]?.label || drawerResource.status}</span></div>
+            <div><div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Status</div><span className={STATUS_BADGE[drawerResource.effective_status || drawerResource.status]?.cls || 'badge'}>{STATUS_BADGE[drawerResource.effective_status || drawerResource.status]?.label || drawerResource.effective_status || drawerResource.status}</span></div>
             <div><div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Location</div><span style={{ fontWeight: 600, fontSize: '13px' }}>{drawerResource.location || '—'}</span></div>
             <div><div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Portable</div><span style={{ fontWeight: 600, fontSize: '13px' }}>{drawerResource.is_portable ? 'Yes' : 'No'}</span></div>
           </div>

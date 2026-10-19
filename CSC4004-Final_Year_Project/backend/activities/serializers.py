@@ -4,6 +4,7 @@ from django.core.validators import URLValidator
 from django.core.exceptions import ValidationError as DjangoValidationError
 from .models import Activity, ActivityType
 from users.models import User, RecipientGroup
+from resources.models import Resource
 
 
 class ActivityTypeSerializer(serializers.ModelSerializer):
@@ -38,6 +39,10 @@ class ActivityTypeSerializer(serializers.ModelSerializer):
 
 
 class ActivitySerializer(serializers.ModelSerializer):
+    resource_ids = serializers.PrimaryKeyRelatedField(
+        queryset=Resource.objects.select_related('category'), many=True, required=False, write_only=True
+    )
+    resource_summary = serializers.SerializerMethodField()
     organizer_username = serializers.CharField(source='organizer.username', read_only=True)
     activity_type_name = serializers.SerializerMethodField()
     participant_usernames = serializers.SerializerMethodField()
@@ -46,6 +51,14 @@ class ActivitySerializer(serializers.ModelSerializer):
     participant_summary = serializers.SerializerMethodField()
     unique_recipient_count = serializers.SerializerMethodField()
     reminder_emails = serializers.SerializerMethodField()
+
+    def create(self, validated_data):
+        validated_data.pop('resource_ids', None)
+        return super().create(validated_data)
+
+    def update(self, instance, validated_data):
+        validated_data.pop('resource_ids', None)
+        return super().update(instance, validated_data)
 
     class Meta:
         model = Activity
@@ -59,6 +72,16 @@ class ActivitySerializer(serializers.ModelSerializer):
             'reviewed_at',
             'rejection_reason',
         )
+
+    def get_resource_summary(self, obj):
+        return [
+            {'id': allocation.resource_id, 'name': allocation.resource.name,
+             'category': allocation.resource.category.name if allocation.resource.category else '',
+             'status': allocation.status}
+            for allocation in obj.resource_allocations.select_related('resource', 'resource__category').filter(
+                status__in=['PENDING', 'APPROVED']
+            )
+        ]
 
     def validate(self, attrs):
         title = attrs.get('title') or getattr(self.instance, 'title', '')

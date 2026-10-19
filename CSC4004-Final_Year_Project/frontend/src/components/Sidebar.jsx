@@ -3,10 +3,13 @@ import { NavLink, useLocation } from 'react-router-dom';
 import { AuthContext } from '../context/AuthContextValue';
 import './Sidebar.css';
 
-const Sidebar = ({ collapsed }) => {
+const Sidebar = ({ collapsed, onNavigate }) => {
   const { user } = useContext(AuthContext);
   const location = useLocation();
   const currentPath = location.pathname;
+  const canAccessControl = Boolean(user?.is_superuser || user?.has_control_privilege);
+  const canViewAnnouncements = Boolean(user);
+  const canViewDeveloperOptions = Boolean(user?.is_superuser || (user?.role === 'ADMIN' && user?.has_developer_options));
 
   // Determine current active module info accurately based on system backbone
   let activeModule = {
@@ -74,6 +77,10 @@ const Sidebar = ({ collapsed }) => {
         </svg>
       ),
     };
+  } else if (currentPath.startsWith('/announcements')) {
+    activeModule = { title: 'Announcements', subLabel: 'Department updates', iconColor: '#0891b2', icon: <span aria-hidden="true">✉</span> };
+  } else if (currentPath.startsWith('/developer-options')) {
+    activeModule = { title: 'Developer Options', subLabel: 'Restricted maintenance', iconColor: '#64748b', icon: <span aria-hidden="true">⚙</span> };
   }
 
   return (
@@ -105,7 +112,7 @@ const Sidebar = ({ collapsed }) => {
       )}
 
       {/* 3. Navigation List - 100% Functional Links */}
-      <nav className="hubtoll-nav-list">
+      <nav className="hubtoll-nav-list" onClick={onNavigate}>
         {/* Corporate Dashboard */}
         <NavLink
           to="/"
@@ -180,8 +187,8 @@ const Sidebar = ({ collapsed }) => {
           {!collapsed && <span className="hubtoll-nav-text">Activities & Events</span>}
         </NavLink>
 
-        {/* Control & Access (Admin Only) */}
-        {user?.role === 'ADMIN' && (
+        {/* Control & Access */}
+        {canAccessControl && (
           <NavLink
             to="/control"
             className={({ isActive }) =>
@@ -198,6 +205,8 @@ const Sidebar = ({ collapsed }) => {
             {!collapsed && <span className="hubtoll-nav-text">Control</span>}
           </NavLink>
         )}
+        {canViewAnnouncements && <NavLink to="/announcements" className={({ isActive }) => `hubtoll-nav-link ${isActive ? 'active' : ''}`} title="Announcements"><span className="hubtoll-nav-icon">✉</span>{!collapsed && <span className="hubtoll-nav-text">Announcements</span>}</NavLink>}
+        {canViewDeveloperOptions && <NavLink to="/developer-options" className={({ isActive }) => `hubtoll-nav-link ${isActive ? 'active' : ''}`} title="Developer Options"><span className="hubtoll-nav-icon">⚙</span>{!collapsed && <span className="hubtoll-nav-text">Developer Options</span>}</NavLink>}
       </nav>
 
       {/* Rail Mode Bottom Avatar */}

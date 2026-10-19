@@ -14,6 +14,10 @@ class RolePermissionsTestCase(APITestCase):
         self.admin_user = User.objects.create_user(
             username='admin', password='password123', role='ADMIN', email='admin@test.com'
         )
+        self.control_admin_user = User.objects.create_user(
+            username='controladmin', password='password123', role='ADMIN',
+            email='controladmin@test.com', has_control_privilege=True
+        )
         self.manager_user = User.objects.create_user(
             username='manager', password='password123', role='MANAGER',
             email='manager@test.com', has_finance_privilege=True
@@ -78,6 +82,28 @@ class RolePermissionsTestCase(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(User.objects.get(username='intruder').role, 'STAFF')
+
+    def test_admin_without_control_privilege_cannot_manage_users(self):
+        self.login('admin')
+        response = self.client.get(reverse('user-management-list'))
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_control_privileged_admin_can_manage_users(self):
+        self.login('controladmin')
+        response = self.client.get(reverse('user-management-list'))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_control_privileged_admin_can_delete_user_account(self):
+        target = User.objects.create_user(
+            username='delete_me', password='password123', role='STAFF', email='delete@test.com'
+        )
+        self.login('controladmin')
+        response = self.client.delete(reverse('user-management-detail', kwargs={'pk': target.pk}))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertFalse(User.objects.filter(pk=target.pk).exists())
 
     def test_staff_cannot_list_users(self):
         self.login('staff1')

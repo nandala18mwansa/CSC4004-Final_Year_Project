@@ -26,6 +26,14 @@ export const AuthProvider = ({ children }) => {
         has_finance_balance_access,
         has_resource_privilege,
         has_activity_privilege,
+        has_control_privilege,
+        has_announcement_view,
+        has_announcement_create,
+        has_announcement_publish,
+        has_announcement_archive,
+        has_announcement_manage_all,
+        has_developer_options,
+        has_destructive_maintenance,
         is_superuser,
       } = response.data;
       setUser({
@@ -40,6 +48,14 @@ export const AuthProvider = ({ children }) => {
         has_finance_balance_access,
         has_resource_privilege,
         has_activity_privilege,
+        has_control_privilege,
+        has_announcement_view,
+        has_announcement_create,
+        has_announcement_publish,
+        has_announcement_archive,
+        has_announcement_manage_all,
+        has_developer_options,
+        has_destructive_maintenance,
         is_superuser,
       });
     } catch (error) {
@@ -66,6 +82,14 @@ export const AuthProvider = ({ children }) => {
       has_finance_balance_access,
       has_resource_privilege,
       has_activity_privilege,
+      has_control_privilege,
+      has_announcement_view,
+      has_announcement_create,
+      has_announcement_publish,
+      has_announcement_archive,
+      has_announcement_manage_all,
+      has_developer_options,
+      has_destructive_maintenance,
       is_superuser,
     } = profileRes.data;
     setUser({
@@ -80,6 +104,14 @@ export const AuthProvider = ({ children }) => {
       has_finance_balance_access,
       has_resource_privilege,
       has_activity_privilege,
+      has_control_privilege,
+      has_announcement_view,
+      has_announcement_create,
+      has_announcement_publish,
+      has_announcement_archive,
+      has_announcement_manage_all,
+      has_developer_options,
+      has_destructive_maintenance,
       is_superuser,
     });
   };

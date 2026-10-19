@@ -33,6 +33,21 @@ from .reports import _money, _render_report_file, _report_filename, _format_date
 MONEY_ZERO = Decimal('0.00')
 
 
+def _can_create_direct_expense(user):
+    return bool(
+        user and user.is_authenticated and (
+            user.is_superuser or (user.role == 'ADMIN' and has_finance_privilege(user))
+        )
+    )
+
+
+def _insufficient_budget_message(budget):
+    return (
+        'Not enough funds in the selected budget category. '
+        f'Available balance: ZMW {budget.current_balance:,.2f}.'
+    )
+
+
 class FinancePagination(PageNumberPagination):
     page_size = 20
     page_size_query_param = 'page_size'
@@ -258,6 +273,10 @@ def _notify(recipient, kind, title, message, expense=None, report_request=None):
 def _notify_finance_team(title, message, expense=None, report_request=None):
     User = get_user_model()
     recipients = User.objects.filter(Q(is_superuser=True) | Q(has_finance_privilege=True), is_active=True).distinct()
+    if expense:
+        message = f'{message} Requester: {expense.requested_by.username}. Submitted: {timezone.localtime(expense.date_requested).strftime("%d %b %Y %H:%M")}.'
+    elif report_request:
+        message = f'{message} Requester: {report_request.requested_by.username}. Submitted: {timezone.localtime(report_request.requested_at).strftime("%d %b %Y %H:%M")}.'
     notifications = [
         FinanceNotification(
             recipient=u,
@@ -271,14 +290,14 @@ def _notify_finance_team(title, message, expense=None, report_request=None):
     ]
     if notifications:
         FinanceNotification.objects.bulk_create(notifications)
-    notify_users(
+    transaction.on_commit(lambda: notify_users(
         recipients=recipients,
         title=title,
         message=message,
         notification_type='EXPENSE_SUBMITTED' if expense else 'GENERAL',
         link='/finance',
-        send_email=False,
-    )
+        send_email=True,
+    ))
 
 
 def _send_expense_email(expense_id):
@@ -364,7 +383,49 @@ class ExpenseViewSet(viewsets.ModelViewSet):
         if end: qs = qs.filter(date_requested__date__lte=end)
         return qs.order_by('-date_requested')
 
+    def update(self, request, *args, **kwargs):
+        # Preserve the legacy status-PATCH contract while routing every approval
+        # through the same locked ledger operation used by the action endpoints.
+        requested_status = str(request.data.get('status') or '').upper()
+        if requested_status in {'APPROVED', 'REJECTED'}:
+            if not has_finance_privilege(request.user):
+                raise PermissionDenied('Finance privilege required to review an expense.')
+            if requested_status == 'APPROVED':
+                return self.approve(request, pk=kwargs.get('pk'))
+            return self.reject(request, pk=kwargs.get('pk'))
+        if requested_status:
+            raise ValidationError({'status': 'Expense status can only be changed through approval or rejection.'})
+        return super().update(request, *args, **kwargs)
+
     def perform_create(self, serializer):
+        if _can_create_direct_expense(self.request.user):
+            budget_id = serializer.validated_data.get('budget').pk if serializer.validated_data.get('budget') else None
+            if not budget_id:
+                raise ValidationError({'budget': 'Select a budget to create a direct expense.'})
+            with transaction.atomic():
+                budget = Budget.objects.select_for_update().get(pk=budget_id)
+                amount = serializer.validated_data['amount']
+                today = timezone.localdate()
+                if budget.start_date and today < budget.start_date:
+                    raise ValidationError({'budget': 'This budget is not active yet.'})
+                if budget.end_date and today > budget.end_date:
+                    raise ValidationError({'budget': 'This budget has expired.'})
+                if budget.current_balance < amount:
+                    raise ValidationError({'budget': _insufficient_budget_message(budget)})
+                before = budget.current_balance
+                expense = serializer.save(
+                    requested_by=self.request.user, status='APPROVED',
+                    processed_by=self.request.user, date_processed=timezone.now(),
+                )
+                budget.current_balance -= amount
+                budget.save(update_fields=['current_balance'])
+                tx = BudgetTransaction.objects.create(
+                    budget=budget, expense=expense, action_type='DEDUCTION', amount=amount,
+                    balance_before=before, balance_after=budget.current_balance,
+                    performed_by=self.request.user, notes=f'Direct expense {expense.reference}: {expense.description}',
+                )
+                _audit(self.request.user, 'EXPENSE_CREATED_DIRECTLY', expense, f'{tx.reference}; {_money(before)} -> {_money(budget.current_balance)}')
+            return
         expense = serializer.save(requested_by=self.request.user)
         _audit(self.request.user, 'EXPENSE_REQUESTED', expense)
         _notify_finance_team('New expense request', f'{expense.reference} for {_money(expense.amount)} requires review.', expense=expense)
@@ -391,7 +452,8 @@ class ExpenseViewSet(viewsets.ModelViewSet):
             today = timezone.localdate()
             if budget.start_date and today < budget.start_date: raise ValidationError({'budget': 'This budget is not active yet.'})
             if budget.end_date and today > budget.end_date: raise ValidationError({'budget': 'This budget has expired.'})
-            if budget.current_balance < expense.amount: raise ValidationError({'budget': 'Insufficient available funds.'})
+            if budget.current_balance < expense.amount:
+                raise ValidationError({'budget': _insufficient_budget_message(budget)})
             before = budget.current_balance
             budget.current_balance -= expense.amount; budget.save(update_fields=['current_balance'])
             expense.status='APPROVED'; expense.processed_by=request.user; expense.date_processed=timezone.now(); expense.rejection_reason=None

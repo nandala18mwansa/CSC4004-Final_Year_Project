@@ -127,6 +127,7 @@ class Allocation(models.Model):
         ('PENDING', 'Pending Approval'),
         ('APPROVED', 'Approved'),
         ('REJECTED', 'Rejected'),
+        ('CANCELLED', 'Cancelled'),
     )
 
     resource = models.ForeignKey(Resource, on_delete=models.CASCADE, related_name='allocations')

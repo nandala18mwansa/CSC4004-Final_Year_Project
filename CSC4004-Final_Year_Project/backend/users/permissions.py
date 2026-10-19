@@ -22,7 +22,7 @@ def has_activity_privilege(user):
 
 
 def has_control_privilege(user):
-    return bool(user and user.is_authenticated and (user.is_superuser or user.role == 'ADMIN'))
+    return bool(user and user.is_authenticated and (user.is_superuser or user.has_control_privilege))
 
 
 class IsAdmin(permissions.BasePermission):

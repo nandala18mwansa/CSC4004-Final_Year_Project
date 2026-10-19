@@ -30,6 +30,9 @@ htmlcov/
 *.log
 /media
 /staticfiles
+backend/staticfiles/
+backend/private_backups/
+backend/private_announcement_files/
 db.sqlite3
 *.sqlite3
 database_export.sql

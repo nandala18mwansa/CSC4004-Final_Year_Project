@@ -27,10 +27,31 @@ class ResourceSerializer(serializers.ModelSerializer):
     category_manager_username = serializers.CharField(source='category.manager.username', read_only=True)
     assigned_room_name = serializers.CharField(source='assigned_room.name', read_only=True)
     status_label = serializers.CharField(source='get_status_display', read_only=True)
+    effective_status = serializers.SerializerMethodField()
 
     class Meta:
         model = Resource
         fields = '__all__'
+
+    def get_effective_status(self, obj):
+        if obj.status in {'UNAVAILABLE', 'MAINTENANCE', 'UNDER_REPAIR', 'RETIRED'}:
+            return obj.status
+        active_reservation = getattr(obj, 'has_active_reservation', None)
+        if active_reservation is None:
+            from django.utils import timezone
+            now = timezone.now()
+            active_reservation = obj.allocations.filter(
+                status='APPROVED', end_time__gt=now,
+            ).exists()
+        if active_reservation:
+            return 'BOOKED' if obj.is_portable else 'IN_USE'
+        if obj.status in {'BOOKED', 'IN_USE'}:
+            if obj.condition == 'UNDER_REPAIR':
+                return 'UNDER_REPAIR'
+            if obj.condition == 'DAMAGED':
+                return 'UNAVAILABLE'
+            return 'AVAILABLE'
+        return obj.status
 
     def validate(self, attrs):
         if not (attrs.get('resource_id') or getattr(self.instance, 'resource_id', None)):
@@ -67,12 +88,10 @@ class AllocationSerializer(serializers.ModelSerializer):
         if start_time and end_time and end_time <= start_time:
             raise serializers.ValidationError({'end_time': 'End time must be after start time.'})
 
-        bookable_statuses = {'AVAILABLE'}
+        unbookable_statuses = {'UNAVAILABLE', 'MAINTENANCE', 'UNDER_REPAIR', 'RETIRED'}
         unbookable_conditions = {'UNDER_REPAIR', 'DAMAGED'}
-        if resource and resource.status not in bookable_statuses:
+        if resource and resource.status in unbookable_statuses:
             raise serializers.ValidationError({'resource': 'This resource is not available for booking.'})
-        if resource and not resource.is_portable:
-            raise serializers.ValidationError({'resource': 'Only portable resources can be booked through this workflow.'})
         if resource and resource.condition in unbookable_conditions:
             raise serializers.ValidationError({'resource': 'This resource condition does not allow booking.'})
 

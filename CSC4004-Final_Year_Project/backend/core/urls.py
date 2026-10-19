@@ -35,6 +35,9 @@ from users.views import (
     RecipientGroupViewSet,
     PasswordResetRequestView,
     PasswordResetConfirmView,
+    AnnouncementViewSet,
+    AnnouncementCategoryViewSet,
+    DeveloperOptionsViewSet,
 )
 
 router = DefaultRouter()
@@ -57,6 +60,9 @@ router.register(r'users-admin', UserManagementViewSet, basename='user-management
 router.register(r'user-categories', UserGroupCategoryViewSet, basename='user-category')
 router.register(r'notifications', NotificationViewSet, basename='notification')
 router.register(r'recipient-groups', RecipientGroupViewSet, basename='recipient-group')
+router.register(r'announcements', AnnouncementViewSet, basename='announcement')
+router.register(r'announcement-categories', AnnouncementCategoryViewSet, basename='announcement-category')
+router.register(r'developer-options', DeveloperOptionsViewSet, basename='developer-options')
 
 
 def api_root_view(request):

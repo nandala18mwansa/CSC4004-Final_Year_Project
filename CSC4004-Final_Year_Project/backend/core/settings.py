@@ -82,7 +82,7 @@ WSGI_APPLICATION = 'core.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/6.0/ref/settings/#databases
 
-DB_ENGINE = config('DB_ENGINE', default='django.db.backends.sqlite3')
+DB_ENGINE = config('DB_ENGINE', default='django.db.backends.mysql')
 
 if DB_ENGINE == 'django.db.backends.sqlite3':
     DATABASES = {
@@ -169,7 +169,7 @@ EMAIL_USE_TLS = config('EMAIL_USE_TLS', default=True, cast=bool)
 
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
-        'rest_framework_simplejwt.authentication.JWTAuthentication',
+        'users.authentication.MaintenanceAwareJWTAuthentication',
     ),
     # Resource exports use ?format=PDF/EXCEL/CSV. Disable DRF's renderer
     # override so those requests reach the export action instead of 404ing.
