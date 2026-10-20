@@ -58,6 +58,10 @@ class ResourceSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError({'resource_id': 'Resource ID is required.'})
         if not (attrs.get('category') or getattr(self.instance, 'category', None)):
             raise serializers.ValidationError({'category': 'Resource category is required.'})
+        target_category = attrs.get('category') or getattr(self.instance, 'category', None)
+        if target_category and target_category.name.strip().casefold() in {'rooms', 'rooms & venues'}:
+            # Rooms are fixed assets, but remain bookable through Allocation.
+            attrs['is_portable'] = False
         assigned_room = attrs.get('assigned_room') or getattr(self.instance, 'assigned_room', None)
         if self.instance and assigned_room and assigned_room.pk == self.instance.pk:
             raise serializers.ValidationError({'assigned_room': 'A resource cannot be attached to itself.'})

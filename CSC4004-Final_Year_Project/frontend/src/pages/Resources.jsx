@@ -162,7 +162,10 @@ const Resources = () => {
   const [reportDecisionReason, setReportDecisionReason] = useState('');
 
   const canManage = Boolean(user?.is_superuser || user?.has_resource_privilege);
-  const availableResources = resources.filter((r) => r.is_portable && r.status === 'AVAILABLE' && !['UNDER_REPAIR', 'DAMAGED'].includes(r.condition));
+  const isRoomsCategory = (categoryId) => resourceCategories.some((item) => String(item.id) === String(categoryId) && ['rooms', 'rooms & venues'].includes(item.name?.trim().toLowerCase()));
+  const selectedCategoryIsRooms = isRoomsCategory(category);
+  const selectedBulkCategoryIsRooms = isRoomsCategory(bulkCategory);
+  const availableResources = resources.filter((r) => (r.effective_status || r.status) === 'AVAILABLE' && !['UNDER_REPAIR', 'DAMAGED'].includes(r.condition));
 
   const loadAll = useCallback(async () => {
     const [rRes, catRes, allocRes, actRes, usersRes, reportReqRes] = await Promise.allSettled([
@@ -345,7 +348,7 @@ const Resources = () => {
   const handleSaveResource = async () => {
     if (!resourceCode.trim() || !name.trim()) { setModalError('Resource ID and name are required.'); return; }
     setSaving(true); setModalError('');
-    const payload = { resource_id: resourceCode, name, category: category || null, assigned_room: assignedRoom || null, description, status, condition, location, is_portable: isPortable };
+    const payload = { resource_id: resourceCode, name, category: category || null, assigned_room: assignedRoom || null, description, status, condition, location, is_portable: selectedCategoryIsRooms ? false : isPortable };
     try {
       if (activeResourceId) await api.put(`resources/${activeResourceId}/`, payload);
       else await api.post('resources/', payload);
@@ -382,7 +385,7 @@ const Resources = () => {
       const res = await api.post('resources/bulk-create/', {
         prefix: bulkPrefix, start_number: Number(bulkStart), quantity: Number(bulkQty),
         category_id: bulkCategory || null, condition: bulkCondition,
-        location: bulkLocation, is_portable: bulkPortable,
+        location: bulkLocation, is_portable: selectedBulkCategoryIsRooms ? false : bulkPortable,
       });
       setBulkResult(res.data);
       await loadAll();
@@ -720,7 +723,7 @@ const Resources = () => {
         <>
           <div className="hubtoll-kpi-grid">
             <div className="hubtoll-kpi-card accent-blue"><div className="hubtoll-kpi-label">TOTAL ASSETS</div><div className="hubtoll-kpi-value">{resources.length}</div><div className="hubtoll-kpi-sub">Tracked physical resources</div></div>
-            <div className="hubtoll-kpi-card accent-green"><div className="hubtoll-kpi-label">AVAILABLE</div><div className="hubtoll-kpi-value">{availableResources.length}</div><div className="hubtoll-kpi-sub">Bookable resources</div></div>
+            <div className="hubtoll-kpi-card accent-green"><div className="hubtoll-kpi-label">AVAILABLE</div><div className="hubtoll-kpi-value">{availableResources.length}</div><div className="hubtoll-kpi-sub">Bookable resources and rooms</div></div>
             <div className="hubtoll-kpi-card accent-orange"><div className="hubtoll-kpi-label">ALLOCATED / BOOKED</div><div className="hubtoll-kpi-value">{activeAllocations.length}</div><div className="hubtoll-kpi-sub">Approved bookings</div></div>
             <div className="hubtoll-kpi-card accent-red"><div className="hubtoll-kpi-label">UNDER REPAIR</div><div className="hubtoll-kpi-value">{underRepairCount}</div><div className="hubtoll-kpi-sub">Maintenance or repair attention</div></div>
           </div>
@@ -895,7 +898,7 @@ const Resources = () => {
                   <td style={{ padding: '9px 12px' }}>
                     <div style={{ display: 'flex', gap: '4px' }}>
                       <button type="button" className="btn btn-secondary btn-sm" style={{ padding: '3px 8px', fontSize: '12px', minHeight: 'unset' }} onClick={() => openDrawer(r)} title="History & Inspection">View</button>
-                      {r.is_portable && r.status === 'AVAILABLE' && !['UNDER_REPAIR', 'DAMAGED'].includes(r.condition) && (
+                      {(r.effective_status || r.status) === 'AVAILABLE' && !['UNDER_REPAIR', 'DAMAGED'].includes(r.condition) && (
                         <button type="button" className="btn btn-secondary btn-sm" style={{ padding: '3px 8px', fontSize: '12px', minHeight: 'unset' }} onClick={() => openBook(r)} title="Book Resource">Book</button>
                       )}
                       {canManage && (
@@ -1042,7 +1045,7 @@ const Resources = () => {
             <div className="form-group"><label className="form-label">Resource ID *</label><input className="form-input" value={resourceCode} onChange={(e) => setResourceCode(e.target.value)} placeholder="e.g. COMP-001" required /></div>
             <div className="form-group"><label className="form-label">Name *</label><input className="form-input" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Dell Laptop" required /></div>
             <div className="form-group"><label className="form-label">Category</label>
-              <select className="form-select" value={category} onChange={(e) => setCategory(e.target.value)}>
+              <select className="form-select" value={category} onChange={(e) => { setCategory(e.target.value); if (isRoomsCategory(e.target.value)) setIsPortable(false); }}>
                 <option value="">— No category —</option>
                 {resourceCategories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
@@ -1060,10 +1063,11 @@ const Resources = () => {
             <div className="form-group"><label className="form-label">Location / Room</label><input className="form-input" value={location} onChange={(e) => setLocation(e.target.value)} placeholder="e.g. Lab 1, Office 3B" /></div>
             <div className="form-group" style={{ gridColumn: 'span 2' }}><label className="form-label">Description</label><textarea className="form-textarea" rows="2" value={description} onChange={(e) => setDescription(e.target.value)} /></div>
             <div className="form-group" style={{ gridColumn: 'span 2' }}>
-              <label style={{ display: 'flex', gap: '8px', alignItems: 'center', cursor: 'pointer' }}>
-                <input type="checkbox" checked={isPortable} onChange={(e) => setIsPortable(e.target.checked)} />
+              <label style={{ display: 'flex', gap: '8px', alignItems: 'center', cursor: selectedCategoryIsRooms ? 'not-allowed' : 'pointer' }}>
+                <input type="checkbox" checked={selectedCategoryIsRooms ? false : isPortable} disabled={selectedCategoryIsRooms} onChange={(e) => setIsPortable(e.target.checked)} />
                 Portable (can be moved between rooms)
               </label>
+              {selectedCategoryIsRooms && <div style={{ gridColumn: 'span 2', fontSize: '12px', color: 'var(--text-secondary)' }}>Rooms are fixed, non-portable resources. Users can still reserve them through booking requests.</div>}
             </div>
           </div>
         </Modal>
@@ -1104,7 +1108,7 @@ const Resources = () => {
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 1rem' }}>
                 <div className="form-group"><label className="form-label">Category</label>
-                  <select className="form-select" value={bulkCategory} onChange={(e) => setBulkCategory(e.target.value)}>
+                  <select className="form-select" value={bulkCategory} onChange={(e) => { setBulkCategory(e.target.value); if (isRoomsCategory(e.target.value)) setBulkPortable(false); }}>
                     <option value="">— None —</option>
                     {resourceCategories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
                   </select>
@@ -1116,10 +1120,11 @@ const Resources = () => {
                 </div>
                 <div className="form-group" style={{ gridColumn: 'span 2' }}><label className="form-label">Location / Room</label><input className="form-input" value={bulkLocation} onChange={(e) => setBulkLocation(e.target.value)} placeholder="e.g. Computer Lab 1" /></div>
               </div>
-              <label style={{ display: 'flex', gap: '8px', alignItems: 'center', cursor: 'pointer', fontSize: '13px' }}>
-                <input type="checkbox" checked={bulkPortable} onChange={(e) => setBulkPortable(e.target.checked)} />
+              <label style={{ display: 'flex', gap: '8px', alignItems: 'center', cursor: selectedBulkCategoryIsRooms ? 'not-allowed' : 'pointer', fontSize: '13px' }}>
+                <input type="checkbox" checked={selectedBulkCategoryIsRooms ? false : bulkPortable} disabled={selectedBulkCategoryIsRooms} onChange={(e) => setBulkPortable(e.target.checked)} />
                 Mark as Portable
               </label>
+              {selectedBulkCategoryIsRooms && <div style={{ marginTop: '6px', fontSize: '12px', color: 'var(--text-secondary)' }}>Rooms are fixed, non-portable resources and remain reservable.</div>}
             </>
           )}
         </Modal>

@@ -128,7 +128,10 @@ class ResourceCategoryViewSet(viewsets.ModelViewSet):
         user = self.request.user
         queryset = super().get_queryset()
         if self.request.query_params.get('bookable', '').lower() in {'1', 'true', 'yes'}:
-            queryset = queryset.filter(is_portable=True, status='AVAILABLE').exclude(condition__in=['UNDER_REPAIR', 'DAMAGED'])
+            queryset = queryset.filter(
+                resources__status='AVAILABLE',
+                resources__condition__in=['NEW', 'GOOD', 'FAIR', 'POOR'],
+            ).distinct()
         if has_resource_privilege(user):
             return queryset
         return queryset
@@ -293,6 +296,8 @@ class ResourceViewSet(viewsets.ModelViewSet):
 
         if category and not can_manage_resource_category(request.user, category):
             raise PermissionDenied("You can only add resources under categories assigned to you.")
+        if category and category.name.strip().casefold() in {'rooms', 'rooms & venues'}:
+            is_portable = False
 
         # Determine zero-padding width based on end number
         end_number = start_number + quantity - 1
@@ -840,7 +845,12 @@ def _import_row(row, user, row_num):
 
     category = None
     if category_name:
-        category, _ = ResourceCategory.objects.get_or_create(name=category_name)
+        if category_name.casefold() in {'rooms', 'rooms & venues'}:
+            category, _ = ResourceCategory.objects.get_or_create(name='Rooms')
+        else:
+            category, _ = ResourceCategory.objects.get_or_create(name=category_name)
+    if category and category.name.strip().casefold() in {'rooms', 'rooms & venues'}:
+        is_portable = False
 
     r = Resource.objects.create(
         resource_id=resource_id,
